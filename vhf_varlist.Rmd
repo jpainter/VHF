@@ -1,0 +1,140 @@
+---
+title: "Guinee-VHF Variable list"
+author: "CDC/OMS"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  pdf_document:
+    fig_caption: yes
+    keep_tex: yes
+    latex_engine: xelatex
+    number_sections: yes
+    toc: yes
+  word_document:
+  - toc: yes
+  
+header-includes:
+- \usepackage[section]{placeins}
+- \usepackage{setspace}
+- \usepackage{relsize}
+---
+
+```{r setup, echo=FALSE, results='hide', message=FALSE, warning=FALSE }
+options(tz="GMT+0")
+Sys.setenv(TZ='GMT+0')
+
+library(knitr)
+opts_chunk$set( echo=FALSE, message=FALSE, comment="", 
+                warnings=FALSE, results='asis')
+
+library(Hmisc)
+library(XLConnect, quietly=TRUE)
+library(lubridate)
+library(plyr)
+
+library(ggplot2)
+library(scales)
+library(RColorBrewer)
+
+library(tidyr)
+library(dplyr, quietly=TRUE) # order is important...
+
+library(rgeos)
+```
+
+# Cas
+
+- Y compris les cas confirme, probable, et suspect
+
+```{r read_cas}
+
+# In order for this import to work, must do 2 things first:
+# 1. Make sure Region settings (control panel) are set to English(UK)
+# 2. open csv file in excel, then save as an excel spreadsheet.
+
+file.name = "guinea_cases_10_Oct"
+
+dir = 'C:\\Users\\bzp3\\Dropbox\\_Ebola\\VHF\\fieldData\\'
+
+excel.file = paste0(dir, file.name, '.xlsx') 
+wb = loadWorkbook(excel.file)
+case_data = readWorksheet(wb, file.name)
+```
+
+```{r Define_case_data}
+
+epiCaseDef = data.frame(EpiCaseDef = c(0,1,2,3,4),
+                     EpiCaseDef.label = c('Non-Cas','Confirme',
+                                          'Probable','Suspect', 'Exclude'))
+
+cases = case_data %>% 
+  select( ID, StatusAsOfCurrentDate, EpiCaseDef , 
+          DateReport, Age, AgeUnit, Gender, DateDeath, 
+          StatusReport, VillageRes, ParishRes, CountryRes,
+          DistrictRes, SCRes, HCW, 
+          HCWposition, HCWFacility, DateOnsetLocalStart, 
+          DateOnset) %>% 
+  filter(!EpiCaseDef==4) %>% # drop 'excluded'
+  mutate( EpiCaseDef = as.integer(EpiCaseDef)) %>%
+  inner_join(epiCaseDef) %>%  
+  mutate( 
+          week = week(DateReport),
+          
+          period = ifelse(week>(week(Sys.Date())-1), "Week",
+                          ifelse(week>(week(Sys.Date())-2), "Week_1",
+                                 ifelse(week>(week(Sys.Date())-3), "Week_2",
+                                        ifelse(week>(week(Sys.Date())-4), 
+                                               "Week_3",
+                                        ifelse(week>(week(Sys.Date())-5), 
+                                               "Week_4", "Previous"))))),
+          period = factor(period, 
+                          levels = c('Week','Week_1','Week_2', 'Week_3', 'Week_4', 'Previous') ),
+          Status = EpiCaseDef.label
+          ) %>%
+    filter( Status %in% c('Confirme','Probable', 'Suspect')) 
+
+```
+
+```{r missing_date, results='asis'}
+#  list records missing period
+missingPeriod = cases %>% filter(is.na(period)) %>% select(ID)
+
+cat('There are', nrow(missingPeriod), 'records with missing date:\n')
+
+cat(missingPeriod$ID, sep=', ')
+
+```
+
+## Liste des variables condensées dans la table de cas
+
+```{r describe_cases}
+
+Cases = cases %>% select(-ID)
+d = describe(Cases)
+latex(d, append=TRUE, file='')
+```
+
+# Contacts
+
+```{r read_contacts}
+
+# In order for this import to work, must do 2 things first:
+# 1. Make sure Region settings (control panel) are set to English(UK)
+# 2. open csv file in excel, then save as an excel spreadsheet.
+
+file.name = "guinea_contacts_10_Oct"
+
+dir = 'C:\\Users\\bzp3\\Dropbox\\_Ebola\\VHF\\fieldData\\'
+
+excel.file = paste0(dir, file.name, '.xlsx') 
+wb = loadWorkbook(excel.file)
+contact_data = readWorksheet(wb, file.name)
+```
+
+
+```{r describe_contacts}
+
+contacts = contact_data %>% select(-ID)
+d = describe(contacts)
+latex(d, append=TRUE, file='')
+```
+
