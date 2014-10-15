@@ -53,7 +53,7 @@ library(dplyr, quietly=TRUE) # order is important...
 
 file.name = "guinea_cases_10_Oct"
 
-dir = 'C:\\Users\\bzp3\\Dropbox\\_Ebola\\VHF\\fieldData\\'
+dir = 'C:\\Users\\bzp3\\desktop\\_Ebola\\VHF\\fieldData\\'
 
 excel.file = paste0(dir, file.name, '.xlsx') 
 wb = loadWorkbook(excel.file)
@@ -283,7 +283,7 @@ ggsave('epicurve3.png', width=8, height=6 )
 
 # Case-Status by Week
 
-```{r tab_status}
+```{r tab_status_byWeek}
 
 t.period_wk = cases %>%    # tabulate margin totals by status
   filter(!is.na(period_wk)) %>%
@@ -313,15 +313,49 @@ t[is.na(t)] <- 0  # convert NA to 0
 
 # Calculate number of days reported in current week
 daysThisWeek = cases %>% 
-  select(period, dateOnset) %>% 
+  select(period_wk, dateOnset) %>% 
   filter(
-    if(sum(period %in% 'Week')>0){period=='Week'}else{period=='Week_1'}
+    if(sum(period_wk %in% 'Week')>0){period_wk=='Week'}else{period=='Week_1'}
        ) %>% 
   summarise( 
     days = max(dateOnset)- min(dateOnset) + 1 
     )
 
 cat('The current week has', daysThisWeek$days, 'days\n')
+
+kable(t)  # print table
+
+```
+
+# Case-Status by 7-day period, begining with last reported case
+
+```{r tab_status_7days}
+
+t.period = cases %>%    # tabulate margin totals by status
+  filter(!is.na(period)) %>%
+  group_by(Status) %>% 
+  summarise(Total = n())
+
+t = cases %>%  # tabulate totals by status and period
+  filter(!is.na(period)) %>%
+  group_by(Status, period) %>% 
+  summarise(Total = n()) %>% 
+  as.data.frame() %>%  # spread works more reliably on data.frame
+#   mutate( Percent = percent(Total/sum(Total, na.rm=TRUE)) ) %>%
+  spread(period, Total)  %>%
+  inner_join(t.period) 
+
+# tabulate margin totals over status
+TOTALS = cbind(Status = 'TOTAL',
+                      data.frame( t(sapply(t[,2:ncol(t)], sum, na.rm=TRUE) ) )
+                 )
+
+# before adding to bottom of table, t, need to be sure has same colnames
+colnames(TOTALS) = colnames(t)  
+
+t = rbind(t, TOTALS)  # join TOTALS to t
+
+t[is.na(t)] <- 0  # convert NA to 0
 
 kable(t)  # print table
 
