@@ -249,6 +249,7 @@ t = cases %>%  # tabulate totals by status and period
   filter(!is.na(period)) %>%
   group_by(Status, period ) %>% 
   summarise(Total = n()) %>%
+  as.data.frame() %>%  # spread works more reliably on data.frame
 #   mutate( Percent = percent(Total/sum(Total, na.rm=TRUE)) ) %>%
   spread(period, Total)  %>%
   inner_join(t.period) 
@@ -297,6 +298,7 @@ p = cases %>%  # tabulate totals by location
   filter(!is.na(period)) %>%
   group_by( period, DistrictRes ) %>% 
   summarize(Total = n()) %>%
+  as.data.frame() %>%  # spread works more reliably on data.frame
   spread(period, Total)  %>%
   inner_join(p.district) 
 p = p %>%
