@@ -330,70 +330,6 @@ kable(t)  # print table
 
 - Y compris les cas confirme et probable, et suspect
 
-```{r epicurve_facet, fig.height=8, fig.cap='Weekly Case Count by Region, Guinee'}
-
-# epicurve by week, Region (2014 only) 
-load('regions.rda')
-Region = regions %>%  # table includes Region, DistrictRes, SCRes
-  select(-SCRes) %>% # remove SCRes
-  unique()  # collapse to unique values of Region and DistrictRes
-
-
-# facet by region; fill by prefecture
-cases %>% 
-  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
-  filter( year(dateOnset) == 2014 ) %>%
-  arrange(dateOnset) %>%
-  mutate( interval = week(dateOnset),
-          period = as.Date(floor_date(dateOnset, "week")) ) %>%  # set time period
-  group_by( Region, DistrictRes, period ) %>%
-  summarize( freq = n() ) %>%  
-  ggplot( aes(x = period , y = freq, fill = DistrictRes) ) +
-  geom_bar( stat = 'identity', color = 'white') +
-  scale_x_date('Week', labels = date_format("%b-%dd"),
-               breaks = date_breaks("week")) +
-  ylab('Cases') + 
-  theme(axis.text.x = element_text(angle = 90, hjust = 1) ) +
-#   scale_fill_manual(values = c('red', 'blue', 'yellow')) +
-  facet_grid( Region ~ .)
-
-
-ggsave('epicurve3.png', width=8, height=6 )
-
-```
-
-```{r tab_district, results='asis'}
-p.district = cases %>%  # tabulate margin totals by DistrictRes
-  filter(!is.na(period)) %>%
-  group_by(DistrictRes) %>% 
-  summarize(Total = n()) 
-
-p = cases %>%  # tabulate totals by location
-  filter(!is.na(period)) %>%
-  group_by( period, DistrictRes ) %>% 
-  summarize(Total = n()) %>%
-  as.data.frame() %>%  # spread works more reliably on data.frame
-  spread(period, Total)  %>%
-  merge(p.district) 
-
-p = p %>%
-    arrange(DistrictRes )  # sorted by number in must recent week
-
-# tabulate margin totals over status
-TOTALS = cbind(DistrictRes = 'TOTAL',
-                      data.frame( t(sapply(p[,2:ncol(p)], sum, na.rm=TRUE) ) )
-                 )
-
-# before adding to bottom of table, t, need to be sure has same colnames
-colnames(TOTALS) = colnames(p)  
-
-p = rbind(p, TOTALS) # join TOTALS to t
-
-p[is.na(p)] <- 0  # convert NA to 0
-
-kable(p)  # print table
-
-```
 
 ```{r gadm_map_data}
 
@@ -543,6 +479,72 @@ theme_map =  # coord_map() +
           plot.margin = unit(c(0,0,0,0),"cm") # remove plot margins
      )
 ```
+
+```{r epicurve_facet, fig.height=8, fig.cap='Weekly Case Count by Region, Guinee'}
+
+# epicurve by week, Region (2014 only) 
+load('regions.rda')
+Region = regions %>%  # table includes Region, DistrictRes, SCRes
+  select(-SCRes) %>% # remove SCRes
+  unique()  # collapse to unique values of Region and DistrictRes
+
+
+# facet by region; fill by prefecture
+cases %>% 
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  filter( year(dateOnset) == 2014 ) %>%
+  arrange(dateOnset) %>%
+  mutate( interval = week(dateOnset),
+          period = as.Date(floor_date(dateOnset, "week")) ) %>%  # set time period
+  group_by( Region, DistrictRes, period ) %>%
+  summarize( freq = n() ) %>%  
+  ggplot( aes(x = period , y = freq, fill = DistrictRes) ) +
+  geom_bar( stat = 'identity', color = 'white') +
+  scale_x_date('Week', labels = date_format("%b-%dd"),
+               breaks = date_breaks("week")) +
+  ylab('Cases') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1) ) +
+#   scale_fill_manual(values = c('red', 'blue', 'yellow')) +
+  facet_grid( Region ~ .)
+
+
+ggsave('epicurve3.png', width=8, height=6 )
+
+```
+
+```{r tab_district, results='asis'}
+p.district = cases %>%  # tabulate margin totals by DistrictRes
+  filter(!is.na(period)) %>%
+  group_by(DistrictRes) %>% 
+  summarize(Total = n()) 
+
+p = cases %>%  # tabulate totals by location
+  filter(!is.na(period)) %>%
+  group_by( period, DistrictRes ) %>% 
+  summarize(Total = n()) %>%
+  as.data.frame() %>%  # spread works more reliably on data.frame
+  spread(period, Total)  %>%
+  merge(p.district) 
+
+p = p %>%
+    arrange(DistrictRes )  # sorted by number in must recent week
+
+# tabulate margin totals over status
+TOTALS = cbind(DistrictRes = 'TOTAL',
+                      data.frame( t(sapply(p[,2:ncol(p)], sum, na.rm=TRUE) ) )
+                 )
+
+# before adding to bottom of table, t, need to be sure has same colnames
+colnames(TOTALS) = colnames(p)  
+
+p = rbind(p, TOTALS) # join TOTALS to t
+
+p[is.na(p)] <- 0  # convert NA to 0
+
+kable(p)  # print table
+
+```
+
 
 ```{r prefets, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee"}
 
