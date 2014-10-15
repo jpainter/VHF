@@ -45,6 +45,8 @@ library(dplyr, quietly=TRUE) # order is important...
 
 ```
 
+- Data loaded from export of VHF database.^[export cases as .csv, then open and save file as excel]
+
 ```{r read}
 
 # In order for this import to work, must do 2 things first:
@@ -57,8 +59,8 @@ dir = 'C:\\Users\\bzp3\\desktop\\_Ebola\\VHF\\fieldData\\'
 
 excel.file = paste0(dir, file.name, '.xlsx') 
 wb = loadWorkbook(excel.file)
-case_data = readWorksheet(wb, file.name)
-
+case_data =   readWorksheet(wb, file.name)
+  
 # set report date as the most recent DateReport
 last.report.date = max(case_data$DateReport, na.rm=TRUE)
 current.week = week(last.report.date)
@@ -163,19 +165,20 @@ save(cases, file='cases.rda')
 
 ```{r missing_date, results='asis'}
 #  list records missing period
-missingPeriod = cases %>% filter(is.na(period)) %>% select(ID)
+missingPeriod = cases %>% filter(is.na(dateOnset)) %>% select(ID)
 ```
 
 - Most recent data included in this report is from 
-`r max(cases$DateReport, na.rm=TRUE)`.
+**`r format(max(cases$DateReport, na.rm=TRUE), "%d-%B-%Y")`**.
 
-- There are {`r nrow(missingPeriod)`} records with missing dates:   
+- There are `r nrow(missingPeriod)` records with missing dates:   
 `r cat(missingPeriod$ID, sep=', ')`
 
+\newpage
 
-# Epicurves
+# Epicurve by Month
 
-```{r epicurves}
+```{r epicurve_monthly, fig.cap='Monthly Ebola Cases, Guinee'}
 
 # epicurve by month (2014 only) 
 
@@ -190,13 +193,39 @@ cases %>%
   geom_bar( stat = 'identity', color = 'white') +
   scale_x_date('month', labels = date_format("%b-%dd"),
                breaks = date_breaks("month")) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+       legend.position = 'top' ) +
   scale_fill_manual(values = c('red', 'blue', 'yellow')) 
 
 ggsave('epicurve0.png')
   
-# epicurve by week (2014 only) 
 
+```
+
+# Epicurves By Week (by report date and onset date)
+
+```{r epicurves_weekly_DateReported, fig.height=3.5, fig.cap='Weekly Ebola Cases, Guinee (by date reported)'}
+
+cases %>% 
+  filter( year(DateReport) == 2014 ) %>%
+  arrange(DateReport) %>%
+  mutate( interval = week(DateReport),
+          period = as.Date(floor_date(DateReport, "week")) ) %>%  # set time period
+  group_by( period, Status ) %>%
+  summarize( freq = n() ) %>%  
+  ggplot( aes(x = period , y = freq, fill = Status) ) +
+  geom_bar( stat = 'identity', color = 'white') +
+  scale_x_date('Week beginning', labels = date_format("%b-%d"),
+               breaks = date_breaks("week")) +
+  ylab('Cases') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+       legend.position = 'top' ) +
+  scale_fill_manual(values = c('red', 'blue', 'yellow')) 
+
+ggsave('epicurve1.png')
+```
+
+```{r epicurves_weekly_onsetDate, fig.height=3.5, fig.cap='Weekly Ebola Cases, Guinee (by onset date)'}
 cases %>% 
   filter( year(dateOnset) == 2014 ) %>%
   arrange(dateOnset) %>%
@@ -206,84 +235,20 @@ cases %>%
   summarize( freq = n() ) %>%  
   ggplot( aes(x = period , y = freq, fill = Status) ) +
   geom_bar( stat = 'identity', color = 'white') +
-  scale_x_date('Week beginning', labels = date_format("%b-%dd"),
+  scale_x_date('Week beginning', labels = date_format("%b-%d"),
                breaks = date_breaks("week")) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab('Cases') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+       legend.position = 'top' ) +
   scale_fill_manual(values = c('red', 'blue', 'yellow')) 
 
-ggsave('epicurve1.png')
-
-# epicurve by week, Region (2014 only) 
-load('regions.rda')
-Region = regions %>%  # table includes Region, DistrictRes, SCRes
-  select(-SCRes) %>% # remove SCRes
-  unique()  # collapse to unique values of Region and DistrictRes
-
-cases %>% 
-  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
-#   left_join(Region) %>%  # replaced with merge because of possible encoding conflict
-  filter( year(dateOnset) == 2014 ) %>%
-  arrange(dateOnset) %>%
-  mutate( interval = week(dateOnset),
-          period = as.Date(floor_date(dateOnset, "week")) ) %>%  # set time period
-  group_by( Region, period, Status ) %>%
-  summarize( freq = n() ) %>%  
-  ggplot( aes(x = period , y = freq, fill = Status) ) +
-  geom_bar( stat = 'identity', color = 'white') +
-  scale_x_date('Week beginning', labels = date_format("%b-%dd"),
-               breaks = date_breaks("week")) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  ylab('New Cases') +
-  scale_fill_manual(values = c('red', 'blue', 'yellow')) +
-  facet_grid( Region ~ .)
-
-# same chart using report date, DateReport
-cases %>% 
-  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
-#   left_join(Region) %>%  # replaced with merge because of possible encoding conflict
-  filter( year(DateReport) == 2014 ) %>%
-  arrange(dateOnset) %>%
-  mutate( interval = week(DateReport),
-          period = as.Date(floor_date(DateReport, "week")) ) %>%  # set time period
-  group_by( Region, period, Status ) %>%
-  summarize( freq = n() ) %>%  
-  ggplot( aes(x = period , y = freq, fill = Status) ) +
-  geom_bar( stat = 'identity', color = 'white') +
-  scale_x_date('Week beginning', labels = date_format("%b-%dd"),
-               breaks = date_breaks("week")) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  ylab('New Cases') +
-  scale_fill_manual(values = c('red', 'blue', 'yellow')) +
-  facet_grid( Region ~ .)
-
 ggsave('epicurve2.png')
-```
-
-```{r epicurve_facet, fig.height=8}
-# facet by region; fill by prefecture
-cases %>% 
-  filter( year(dateOnset) == 2014 ) %>%
-  arrange(dateOnset) %>%
-  mutate( interval = week(dateOnset),
-          period = as.Date(floor_date(dateOnset, "week")) ) %>%  # set time period
-  group_by( DistrictRes, period, Status ) %>%
-  summarize( freq = n() ) %>%  
-  ggplot( aes(x = period , y = freq, fill = Status) ) +
-  geom_bar( stat = 'identity', color = 'white') +
-  scale_x_date('Week', labels = date_format("%b-%dd"),
-               breaks = date_breaks("week")) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
-  scale_fill_manual(values = c('red', 'blue', 'yellow')) +
-  facet_grid( DistrictRes ~ .)
-
-
-ggsave('epicurve3.png', width=8, height=6 )
 
 ```
 
 # Case-Status by Week
 
-```{r tab_status_byWeek}
+```{r tab_status_byOnsetWeek}
 
 t.period_wk = cases %>%    # tabulate margin totals by status
   filter(!is.na(period_wk)) %>%
@@ -361,44 +326,10 @@ kable(t)  # print table
 
 ```
 
-# Cases by Location
+# Cases by Prefecture
 
-- Y compris les cas confirme, probable, et suspect
+- Y compris les cas confirme et probable, et suspect
 
-## Prefecture
-
-```{r tab_district, results='asis'}
-p.district = cases %>%  # tabulate margin totals by DistrictRes
-  filter(!is.na(period)) %>%
-  group_by(DistrictRes) %>% 
-  summarize(Total = n()) 
-
-p = cases %>%  # tabulate totals by location
-  filter(!is.na(period)) %>%
-  group_by( period, DistrictRes ) %>% 
-  summarize(Total = n()) %>%
-  as.data.frame() %>%  # spread works more reliably on data.frame
-  spread(period, Total)  %>%
-  merge(p.district) 
-
-p = p %>%
-    arrange(DistrictRes )  # sorted by number in must recent week
-
-# tabulate margin totals over status
-TOTALS = cbind(DistrictRes = 'TOTAL',
-                      data.frame( t(sapply(p[,2:ncol(p)], sum, na.rm=TRUE) ) )
-                 )
-
-# before adding to bottom of table, t, need to be sure has same colnames
-colnames(TOTALS) = colnames(p)  
-
-p = rbind(p, TOTALS) # join TOTALS to t
-
-p[is.na(p)] <- 0  # convert NA to 0
-
-kable(p)  # print table
-
-```
 
 ```{r gadm_map_data}
 
@@ -549,7 +480,73 @@ theme_map =  # coord_map() +
      )
 ```
 
-```{r prefets, fig.cap="Cas d'ebola pendant le dernier 7 et 21 jours"}
+```{r epicurve_facet, fig.height=8, fig.cap='Weekly Case Count by Region, Guinee'}
+
+# epicurve by week, Region (2014 only) 
+load('regions.rda')
+Region = regions %>%  # table includes Region, DistrictRes, SCRes
+  select(-SCRes) %>% # remove SCRes
+  unique()  # collapse to unique values of Region and DistrictRes
+
+
+# facet by region; fill by prefecture
+cases %>% 
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  filter( year(dateOnset) == 2014 ) %>%
+  arrange(dateOnset) %>%
+  mutate( interval = week(dateOnset),
+          period = as.Date(floor_date(dateOnset, "week")) ) %>%  # set time period
+  group_by( Region, DistrictRes, period ) %>%
+  summarize( freq = n() ) %>%  
+  ggplot( aes(x = period , y = freq, fill = DistrictRes) ) +
+  geom_bar( stat = 'identity', color = 'white') +
+  scale_x_date('Week', labels = date_format("%b-%dd"),
+               breaks = date_breaks("week")) +
+  ylab('Cases') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1) ) +
+#   scale_fill_manual(values = c('red', 'blue', 'yellow')) +
+  facet_grid( Region ~ .)
+
+
+ggsave('epicurve3.png', width=8, height=6 )
+
+```
+
+```{r tab_district, results='asis'}
+p.district = cases %>%  # tabulate margin totals by DistrictRes
+  filter(!is.na(period)) %>%
+  group_by(DistrictRes) %>% 
+  summarize(Total = n()) 
+
+p = cases %>%  # tabulate totals by location
+  filter(!is.na(period)) %>%
+  group_by( period, DistrictRes ) %>% 
+  summarize(Total = n()) %>%
+  as.data.frame() %>%  # spread works more reliably on data.frame
+  spread(period, Total)  %>%
+  merge(p.district) 
+
+p = p %>%
+    arrange(DistrictRes )  # sorted by number in must recent week
+
+# tabulate margin totals over status
+TOTALS = cbind(DistrictRes = 'TOTAL',
+                      data.frame( t(sapply(p[,2:ncol(p)], sum, na.rm=TRUE) ) )
+                 )
+
+# before adding to bottom of table, t, need to be sure has same colnames
+colnames(TOTALS) = colnames(p)  
+
+p = rbind(p, TOTALS) # join TOTALS to t
+
+p[is.na(p)] <- 0  # convert NA to 0
+
+kable(p)  # print table
+
+```
+
+
+```{r prefets, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee"}
 
 # add names of all prefets to case count table
 p.name = data.frame(DistrictRes = unique(regions$DistrictRes))
@@ -584,17 +581,6 @@ color.brewer = "PuRd"
 # if categorization is 'diverging'use  color.brewer = 'PiYG'
 colors = brewer.pal(5, color.brewer)
 
-# past week
-g = ggplot( ) + theme_map +
-  geom_polygon(data= map.data.p,
-               aes(x=long, y=lat, group=group, 
-                   fill=Cases1), 
-               color="grey50", alpha=1) + 
-  geom_text(data= GIN2.c, aes(label = Name, x=V1, y=V2), size=3) +
-  scale_fill_manual('Cases',  values = colors, drop = FALSE)
-g
-ggsave('PrefetMap3.png')
-
 # past 3 weeks
 g = ggplot( ) + theme_map +
   geom_polygon(data= map.data.p,
@@ -608,10 +594,10 @@ ggsave('PrefetMap3.png')
 
 ```
 
-## Sous Prefectures
+
+# Cases by Sous Prefecture
 
 ```{r tab_sous_district, results='asis'}
-cat("Sous-prefecture data is missing for", sum(is.na(cases$SCRes)), 'records.\n')
 
 ps.SCRes = cases %>%  # tabulate margin totals by DistrictRes
   filter(!is.na(period)) %>%
@@ -638,22 +624,34 @@ colnames(TOTALS) = colnames(ps)
 
 ps = rbind(ps, TOTALS) # join TOTALS to t
 
+missing.SCRes = ps %>% filter(is.na(SCRes))
+
 ps[is.na(ps)] <- 0  # convert NA to 0
 
-kable(ps)  # print table
+ps[ps$SCRes == '0', 'SCRes'] = 'not_reported'
+
+# kable(ps)  # print table
 ```
 
-```{r sous_prefets, fig.cap="Cas d'bola pendant le dernier 7 et 21 jours"}
+```{r}
+# write number of cases with SC not reported.
+cat("Sous-prefecture data is missing for", 
+    sum(is.na(cases$SCRes)), 
+    'records overall, and was not reported for', 
+    ps %>% filter(SCRes == 'not_reported') %>% 
+                  select(3:5) %>% sum(na.rm = TRUE),
+    'of', 
+    ps %>% filter(DistrictRes == 'TOTAL') %>% 
+                  select(3:5) %>% sum(na.rm = TRUE),
+    'during past 3 weeks. \n')
+```
+
+```{r sous_prefets_3wks, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee"}
+
 # add names of all prefets to case count table
 p.name = data.frame(SCRes = unique(GIN3$NAME_3))
 ps = merge(p.name, ps, all.x=TRUE)
 ps[is.na(ps)] <- 0  # convert NA to 0
-
-# classify values
-ps$Cases1 =  cut( ps[, 'Last 7 days'], 
-                      breaks = c(0,1,10,20, Inf), 
-                      label = c('0','1-9','10-19','20 +'),
-                      right=FALSE, include.lowest=TRUE)
 
 # classify values over past 3 weeks
 ps$weeks3 = 
@@ -683,22 +681,6 @@ color.brewer = "PuRd"
 # if categorization is 'diverging'use  color.brewer = 'PiYG'
 colors = brewer.pal(4, color.brewer)
 
-# last week
-g = ggplot( ) +  theme_map # + theme_bare 
-g = g + theme( axis.text.y = element_blank() )                    
-g = g + geom_polygon(data= map.data.ps, 
-                     aes(x=long, y=lat, group=group, fill=Cases1),
-                     color="grey90", alpha=1)
-g = g + geom_path(data= map.data.p, 
-                     aes(x=long, y=lat, group=group),
-                  color="grey20", alpha=1) 
-g = g + geom_text(data= GIN2.c, aes(label = Name, x=V1, y=V2), size=3)
-g = g + scale_fill_manual('Cases', values = colors, drop = FALSE)
-g
-
-
-ggsave('sousPrefetMap1.png')
-
 # last 3 weeks
 g = ggplot( ) +  theme_map # + theme_bare 
 g = g + theme( axis.text.y = element_blank() )                    
@@ -713,6 +695,51 @@ g = g + scale_fill_manual('Cases', values = colors, drop = FALSE)
 g
 
 ggsave('sousPrefetMap3.png')
+```
+
+```{r sous_prefets_total, fig.cap="Cas d'Ebola depuis le debut d'epidemie, Guinee"}
+# add names of all prefets to case count table
+p.name = data.frame(SCRes = unique(GIN3$NAME_3))
+ps = merge(p.name, ps, all.x=TRUE)
+ps[is.na(ps)] <- 0  # convert NA to 0
+
+# classify values
+ps$CasesTotal =  cut( ps[, 'Total'], 
+                      breaks = c(0,1,10,20, Inf), 
+                      label = c('0','1-9','10-19','20 +'),
+                      right=FALSE, include.lowest=TRUE)
+
+
+# Join data with map
+ps$NAME_2 = ps$DistrictRes
+ps$NAME_3 = ps$SCRes
+map.data.ps = merge(GIN3, ps, all.x=TRUE, 
+                 by.y= c('NAME_2', 'NAME_3'), 
+                 by.x = c('NAME_2', 'NAME_3')
+                 )%>%
+  arrange(order)
+
+
+
+# define colors
+color.brewer = "PuRd" 
+# "YlGnBu" , 'PuBu'  'Greys' (http://colorbrewer2.org/)
+# if categorization is 'diverging'use  color.brewer = 'PiYG'
+colors = brewer.pal(4, color.brewer)
+
+g = ggplot( ) +  theme_map # + theme_bare 
+g = g + theme( axis.text.y = element_blank() )                    
+g = g + geom_polygon(data= map.data.ps, 
+                     aes(x=long, y=lat, group=group, fill=CasesTotal),
+                     color="grey90", alpha=1)
+g = g + geom_path(data= map.data.p, 
+                     aes(x=long, y=lat, group=group),
+                  color="grey20", alpha=1) 
+g = g + geom_text(data= GIN2.c, aes(label = Name, x=V1, y=V2), size=3)
+g = g + scale_fill_manual('Cases', values = colors, drop = FALSE)
+g
+
+ggsave('sousPrefetMap_all.png')
 ```
 
 # Personnel de sante infecté et décedé par suite d'Ebola
@@ -740,7 +767,8 @@ h %>%
   geom_bar( aes(y = ..count.., fill = hcw.type), 
             binwidth=1, color = 'white') +
 #   geom_text( aes(label = StatusAsOfCurrentDate) ) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+        legend.position = 'top' ) +
   scale_x_discrete('Week') +
   scale_fill_discrete('Position') +
   scale_shape_discrete('Status') +
