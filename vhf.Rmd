@@ -28,7 +28,7 @@ opts_chunk$set( echo=FALSE, message=FALSE, comment="",
 
 library(XLConnect, quietly=TRUE)
 library(lubridate)
-library(plyr)  # use for rename() function
+library(reshape)  # use for rename() function
 
 library(rgeos)
 library(sp)
@@ -65,7 +65,6 @@ current.week = week(last.report.date)
 
 # create ifelse function that preserves date class.  see: http://stackoverflow.com/questions/6668963/how-to-prevent-ifelse-from-turning-date-objects-into-numeric-objects
 date.ifelse <- function(cond, yes, no) structure(ifelse(cond, yes, no), class = class(yes))
-
 
 ```
 
@@ -295,6 +294,7 @@ t = cases %>%  # tabulate totals by status and period_wk
   filter(!is.na(period_wk)) %>%
   group_by(Status, period_wk) %>% 
   summarise(Total = n()) %>% 
+  as.data.frame() %>%  # spread works more reliably on data.frame
 #   mutate( Percent = percent(Total/sum(Total, na.rm=TRUE)) ) %>%
   spread(period_wk, Total)  %>%
   inner_join(t.period_wk) 
@@ -337,18 +337,18 @@ kable(t)  # print table
 p.district = cases %>%  # tabulate margin totals by DistrictRes
   filter(!is.na(period)) %>%
   group_by(DistrictRes) %>% 
-  summarize(Total = n())
+  summarize(Total = n()) 
 
 p = cases %>%  # tabulate totals by location
   filter(!is.na(period)) %>%
   group_by( period, DistrictRes ) %>% 
   summarize(Total = n()) %>%
+  as.data.frame() %>%  # spread works more reliably on data.frame
   spread(period, Total)  %>%
-  inner_join(p.district) 
+  merge(p.district) 
 
 p = p %>%
-    arrange(
-      if( sum(colnames(p) == 'Week')>0 ){-Week}else{-Week_1})  # sorted by number in must recent week
+    arrange(DistrictRes )  # sorted by number in must recent week
 
 # tabulate margin totals over status
 TOTALS = cbind(DistrictRes = 'TOTAL',
@@ -425,7 +425,7 @@ save(regions, file = 'regions.rda')
 #             gSimplify(tolerance, topologyPreserve=T) %>%
             fortify(region = "ID_3") %>%
             mutate( id = as.integer(id)) %>%
-            rename(c("id" = "ID_3")) %>%
+            reshape::rename(c("id" = "ID_3")) %>%  #explicit call to rename function in reshape package (as opposed to rename function in plyr package)
             left_join(
               gadm.f[, c("ID_3", "NAME_1", "NAME_2", "NAME_3")])
 
@@ -457,7 +457,7 @@ GIN3[GIN3$NAME_2 == 'Conarky', 'NAME_2'] = 'Conakry'
 #             gSimplify(tolerance, topologyPreserve=T) %>%
             fortify(region = "ID_2") %>%
             mutate( id = as.integer(id)) %>%
-            rename(c("id" = "ID_2")) %>%
+            reshape::rename(c("id" = "ID_2")) %>%
             left_join(
               gadm.f[, c("ID_2", "NAME_1", "NAME_2")])
 
@@ -523,18 +523,14 @@ p = merge(p.name, p, all.x=TRUE)
 p[is.na(p)] <- 0  # convert NA to 0
 
 # classify values
-p$Cases1 =  cut( if( sum(colnames(p) %in% 'Week')>0){p[, 'Week']} else {p[, 'Week_1']}, 
+p$Cases1 =  cut( p[, 'Last 7 days'], 
                       breaks = c(0,1,10,20, Inf), 
                       label = c('0','1-9','10-19','20 +'),
                       right=FALSE, include.lowest=TRUE)
 
 # classify values over past 3 weeks
 p$weeks3 = 
-    if (sum(colnames(p) %in% 'Week')>0){
-      p$Week + p$Week_1 + p$Week_2
-    } else {
-      p$Week_1 + p$Week_2 + p$Week_3
-    }
+    p[, 'Last 7 days'] + p[, 'Previous 8-14 days'] + p[, 'Previous 15-21 days']
       
 p$Cases3 =  cut( p[, 'weeks3'], 
                       breaks = c(0,1,10, 20, 100, Inf), 
@@ -593,12 +589,10 @@ ps = cases %>%  # tabulate totals by location
   filter(!is.na(period)) %>%
   group_by( period, DistrictRes, SCRes ) %>% 
   summarise(Total = n()) %>%
+  as.data.frame() %>%
   spread(period, Total)  %>%
-  inner_join(ps.SCRes) 
-ps = ps %>%
-    arrange( 
-      if( sum(colnames(ps) %in% 'Week')>0){-Week} else {-Week_1}
-      )  # sorted by number in must recent week
+  merge(ps.SCRes) 
+
 
 # tabulate margin totals over status
 TOTALS = cbind(DistrictRes = 'TOTAL', SCRes = '',
@@ -615,26 +609,23 @@ ps[is.na(ps)] <- 0  # convert NA to 0
 kable(ps)  # print table
 ```
 
-```{r sous_prefets, fig.cap="Cas d'ebola pendant le dernier 7 et 21 jours"}
+```{r sous_prefets, fig.cap="Cas d'bola pendant le dernier 7 et 21 jours"}
 # add names of all prefets to case count table
 p.name = data.frame(SCRes = unique(GIN3$NAME_3))
 ps = merge(p.name, ps, all.x=TRUE)
 ps[is.na(ps)] <- 0  # convert NA to 0
 
 # classify values
-ps$Cases1 =  cut( if( sum(colnames(ps) %in% 'Week')>0){ps[, 'Week']} else {ps[, 'Week_1']}, 
+ps$Cases1 =  cut( ps[, 'Last 7 days'], 
                       breaks = c(0,1,10,20, Inf), 
                       label = c('0','1-9','10-19','20 +'),
                       right=FALSE, include.lowest=TRUE)
 
 # classify values over past 3 weeks
 ps$weeks3 = 
-    if (sum(colnames(ps) %in% 'Week')>0){
-      ps$Week + ps$Week_1 + ps$Week_2
-    } else {
-      ps$Week_1 + ps$Week_2 + ps$Week_3
-    }
-      
+    ps[, 'Last 7 days'] + ps[, 'Previous 8-14 days'] + ps[, 'Previous 15-21 days']
+  
+
 # classify values
 ps$Cases3 =  cut( ps$weeks3, 
                       breaks = c(0,1,10,20, Inf), 
