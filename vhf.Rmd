@@ -30,16 +30,19 @@ library(XLConnect, quietly=TRUE)
 library(lubridate)
 library(plyr)  # use for rename() function
 
+library(rgeos)
+library(sp)
+
 library(ggplot2)
 library(scales)
 library(grid)
 library(RColorBrewer)
 
-library(tidyr)
+# library(devtools)
+# devtools::install_github("hadley/tidyr")
+library(tidyr) # install from github (CRAN version not working...)
 library(dplyr, quietly=TRUE) # order is important...
 
-library(rgeos)
-library(sp)
 ```
 
 ```{r read}
@@ -48,13 +51,22 @@ library(sp)
 # 1. Make sure Region settings (control panel) are set to English(UK)
 # 2. open csv file in excel, then save as an excel spreadsheet.
 
-file.name = "guinea_cases_1_Oct"
+file.name = "guinea_cases_10_Oct"
 
 dir = 'C:\\Users\\bzp3\\Dropbox\\_Ebola\\VHF\\fieldData\\'
 
 excel.file = paste0(dir, file.name, '.xlsx') 
 wb = loadWorkbook(excel.file)
 case_data = readWorksheet(wb, file.name)
+
+# set report date as the most recent DateReport
+last.report.date = max(case_data$DateReport, na.rm=TRUE)
+current.week = week(last.report.date)
+
+# create ifelse function that preserves date class.  see: http://stackoverflow.com/questions/6668963/how-to-prevent-ifelse-from-turning-date-objects-into-numeric-objects
+date.ifelse <- function(cond, yes, no) structure(ifelse(cond, yes, no), class = class(yes))
+
+
 ```
 
 ```{r Define_case_data}
@@ -78,38 +90,49 @@ cases = case_data %>%
   mutate( EpiCaseDef = as.integer(EpiCaseDef)) %>%
   inner_join(epiCaseDef) %>%  
   mutate( 
-          dateOnset = ifelse(is.date(DateOnset), DateOnset, DateReport), # use onset date if available; DateReport otherwise
-          week = week(dateOnset),
+          dateOnset = 
+            date.ifelse( is.na(DateOnset), DateReport, DateOnset )
+            , # use onset date if available; DateReport otherwise
+          week = week(dateOnset)  ,
           # calculate periods based on week function, starting with day before current date
-          period_wk = ifelse(week>(week(Sys.Date())-1), "Week",
-                          ifelse(week>(week(Sys.Date())-2), "Week_1",
-                                 ifelse(week>(week(Sys.Date())-3), "Week_2",
-                                        ifelse(week>(week(Sys.Date())-4), 
-                                               "Week_3",
-                                        ifelse(week>(week(Sys.Date())-5), 
+          period_wk = ifelse( week == current.week, "Week", 
+                          ifelse( week == ( current.week - 1 ), "Week_1",
+                                 ifelse( week == ( current.week - 2 ), "Week_2",
+                                        ifelse( week == ( current.week - 3 ), "Week_3",
+                                        ifelse( week== ( current.week - 4 ), 
                                                "Week_4", "Previous"))))),
           period_wk = factor(period_wk, 
                           levels = c('Week','Week_1','Week_2', 'Week_3', 'Week_4', 'Previous') ),
           
           # calculate periods based on 7 day intervals, 
           # starting with day before current date
-          period = ifelse( dateOnset %within% interval(Sys.Date()-edays(1), 
-                                                        Sys.Date()-edays(8)), 
-                           "Last 7 days",
-                          ifelse(DateReport %within% interval(Sys.Date()-edays(8), 
-                                                        Sys.Date()-edays(15)), "Previous 8-14 days",
-                                        ifelse(DateReport %within% interval(Sys.Date()-edays(15), 
-                                                        Sys.Date()-edays(22)), 
-                                               "Previous 15-21 days", 
-                                               "Previous"))),
+          period = date.ifelse( dateOnset %within% 
+                             interval(last.report.date-edays(6),
+                                      last.report.date
+                                      ), "Last 7 days", 
+                    date.ifelse(dateOnset %within% 
+                           interval(last.report.date-edays(13), 
+                                    last.report.date-edays(7)), "Previous 8-14 days",
+                    date.ifelse(dateOnset %within% 
+                             interval(last.report.date-edays(20), 
+                                      last.report.date-edays(14)), "Previous 15-21 days", 
+                           "Previous"))),
           period = factor(period, 
                           levels = c('Last 7 days','Previous 8-14 days',
                                      'Previous 15-21 days', 'Previous') ),
-          onset.last21days = factor( ifelse( dateOnset  %within% 
-                                     interval(Sys.Date()-edays(22)), TRUE, FALSE),
+          onset.last21days = ifelse( dateOnset  %within% 
+                                     interval(Sys.Date()-edays(1), 
+                                              Sys.Date()-edays(22)), 
+                                     TRUE, FALSE) ,
           Status = EpiCaseDef.label
           ) %>%
     filter( Status %in% c('Confirme','Probable', 'Suspect'))
+
+# ensure that character encoding of imported data is 'UTF-8'.  Default on some windows machines is 'latin1'.  This will cause conflict when trying to join with the Region data.table (whose names are in UTF-8)
+# cases$DistrictRes = iconv(cases$DistrictRes, 'latin1', 'UTF-8')
+# or 
+# Encoding(cases$VillageRes) = 'UTF-8'
+# Encoding(cases$SCRes) = 'UTF-8'
 
 ```
 
@@ -158,10 +181,10 @@ missingPeriod = cases %>% filter(is.na(period)) %>% select(ID)
 # epicurve by month (2014 only) 
 
 cases %>% 
-  filter( year(DateReport) == 2014 ) %>%
-  arrange(DateReport) %>%
-  mutate( interval = week(DateReport),
-          period = as.Date(floor_date(DateReport, "month")) ) %>%  # set time period
+  filter( year(dateOnset) == 2014 ) %>%
+  arrange(dateOnset) %>%
+  mutate( interval = week(dateOnset),
+          period = as.Date(floor_date(dateOnset, "month")) ) %>%  # set time period
   group_by( period, Status ) %>%
   summarize( freq = n() ) %>%  
   ggplot( aes(x = period , y = freq, fill = Status) ) +
@@ -176,40 +199,61 @@ ggsave('epicurve0.png')
 # epicurve by week (2014 only) 
 
 cases %>% 
-  filter( year(DateReport) == 2014 ) %>%
-  arrange(DateReport) %>%
-  mutate( interval = week(DateReport),
-          period = as.Date(floor_date(DateReport, "week")) ) %>%  # set time period
+  filter( year(dateOnset) == 2014 ) %>%
+  arrange(dateOnset) %>%
+  mutate( interval = week(dateOnset),
+          period = as.Date(floor_date(dateOnset, "week")) ) %>%  # set time period
   group_by( period, Status ) %>%
   summarize( freq = n() ) %>%  
   ggplot( aes(x = period , y = freq, fill = Status) ) +
   geom_bar( stat = 'identity', color = 'white') +
-  scale_x_date('Week', labels = date_format("%b-%dd"),
+  scale_x_date('Week beginning', labels = date_format("%b-%dd"),
                breaks = date_breaks("week")) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
   scale_fill_manual(values = c('red', 'blue', 'yellow')) 
 
 ggsave('epicurve1.png')
 
-# epicurve by wee, Region (2014 only) 
+# epicurve by week, Region (2014 only) 
 load('regions.rda')
 Region = regions %>%  # table includes Region, DistrictRes, SCRes
   select(-SCRes) %>% # remove SCRes
   unique()  # collapse to unique values of Region and DistrictRes
 
 cases %>% 
-  left_join(Region) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+#   left_join(Region) %>%  # replaced with merge because of possible encoding conflict
+  filter( year(dateOnset) == 2014 ) %>%
+  arrange(dateOnset) %>%
+  mutate( interval = week(dateOnset),
+          period = as.Date(floor_date(dateOnset, "week")) ) %>%  # set time period
+  group_by( Region, period, Status ) %>%
+  summarize( freq = n() ) %>%  
+  ggplot( aes(x = period , y = freq, fill = Status) ) +
+  geom_bar( stat = 'identity', color = 'white') +
+  scale_x_date('Week beginning', labels = date_format("%b-%dd"),
+               breaks = date_breaks("week")) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab('New Cases') +
+  scale_fill_manual(values = c('red', 'blue', 'yellow')) +
+  facet_grid( Region ~ .)
+
+# same chart using report date, DateReport
+cases %>% 
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+#   left_join(Region) %>%  # replaced with merge because of possible encoding conflict
   filter( year(DateReport) == 2014 ) %>%
-  arrange(DateReport) %>%
+  arrange(dateOnset) %>%
   mutate( interval = week(DateReport),
           period = as.Date(floor_date(DateReport, "week")) ) %>%  # set time period
   group_by( Region, period, Status ) %>%
   summarize( freq = n() ) %>%  
   ggplot( aes(x = period , y = freq, fill = Status) ) +
   geom_bar( stat = 'identity', color = 'white') +
-  scale_x_date('Week', labels = date_format("%b-%dd"),
+  scale_x_date('Week beginning', labels = date_format("%b-%dd"),
                breaks = date_breaks("week")) +
   theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab('New Cases') +
   scale_fill_manual(values = c('red', 'blue', 'yellow')) +
   facet_grid( Region ~ .)
 
@@ -219,10 +263,10 @@ ggsave('epicurve2.png')
 ```{r epicurve_facet, fig.height=8}
 # facet by region; fill by prefecture
 cases %>% 
-  filter( year(DateReport) == 2014 ) %>%
-  arrange(DateReport) %>%
-  mutate( interval = week(DateReport),
-          period = as.Date(floor_date(DateReport, "week")) ) %>%  # set time period
+  filter( year(dateOnset) == 2014 ) %>%
+  arrange(dateOnset) %>%
+  mutate( interval = week(dateOnset),
+          period = as.Date(floor_date(dateOnset, "week")) ) %>%  # set time period
   group_by( DistrictRes, period, Status ) %>%
   summarize( freq = n() ) %>%  
   ggplot( aes(x = period , y = freq, fill = Status) ) +
@@ -242,18 +286,18 @@ ggsave('epicurve3.png', width=8, height=6 )
 
 ```{r tab_status}
 
-t.period = cases %>%    # tabulate margin totals by status
-  filter(!is.na(period)) %>%
+t.period_wk = cases %>%    # tabulate margin totals by status
+  filter(!is.na(period_wk)) %>%
   group_by(Status) %>% 
   summarise(Total = n())
 
-t = cases %>%  # tabulate totals by status and period
-  filter(!is.na(period)) %>%
-  group_by(Status, period ) %>% 
-  summarise(Total = n()) %>%
+t = cases %>%  # tabulate totals by status and period_wk
+  filter(!is.na(period_wk)) %>%
+  group_by(Status, period_wk) %>% 
+  summarise(Total = n()) %>% 
 #   mutate( Percent = percent(Total/sum(Total, na.rm=TRUE)) ) %>%
-  spread(period, Total)  %>%
-  inner_join(t.period) 
+  spread(period_wk, Total)  %>%
+  inner_join(t.period_wk) 
 
 # tabulate margin totals over status
 TOTALS = cbind(Status = 'TOTAL',
@@ -269,12 +313,12 @@ t[is.na(t)] <- 0  # convert NA to 0
 
 # Calculate number of days reported in current week
 daysThisWeek = cases %>% 
-  select(period, DateReport) %>% 
+  select(period, dateOnset) %>% 
   filter(
     if(sum(period %in% 'Week')>0){period=='Week'}else{period=='Week_1'}
        ) %>% 
   summarise( 
-    days = max(DateReport)- min(DateReport) + 1 
+    days = max(dateOnset)- min(dateOnset) + 1 
     )
 
 cat('The current week has', daysThisWeek$days, 'days\n')
@@ -301,6 +345,7 @@ p = cases %>%  # tabulate totals by location
   summarize(Total = n()) %>%
   spread(period, Total)  %>%
   inner_join(p.district) 
+
 p = p %>%
     arrange(
       if( sum(colnames(p) == 'Week')>0 ){-Week}else{-Week_1})  # sorted by number in must recent week
@@ -653,7 +698,7 @@ ggsave('sousPrefetMap3.png')
 
 h = cases %>% 
   filter( HCW == TRUE) %>% # limit to health care worker (HCW)
-  mutate(interval = week(DateReport), # set time period
+  mutate(interval = week(dateOnset), # set time period
          hcw.type = # group types hcw
            ifelse( grepl('LAB', toupper(HCWposition)), 'Lab',
               ifelse( grepl('M.D', toupper(HCWposition)),
@@ -662,7 +707,7 @@ h = cases %>%
                                    , 'Infirmiere', 
                                   'Other')))
          ) %>%  
-  filter( year(DateReport) == 2014 ) %>%
+  filter( year(dateOnset) == 2014 ) %>%
   merge(Region) 
 
 h %>%
@@ -685,7 +730,7 @@ For the sake of visualiztion, data avaialable on the type health work was classi
 Infirmiere: 
 ```{r}
 I = h  %>%  
-  filter( year(DateReport) == 2014 & hcw.type %in% 'Infirmiere')
+  filter( year(dateOnset) == 2014 & hcw.type %in% 'Infirmiere')
 
 paste( unique(I$HCWposition), collapse = ', ') 
 ```
@@ -694,7 +739,7 @@ paste( unique(I$HCWposition), collapse = ', ')
 Lab: 
 ```{r}
 L = h  %>%  
-  filter( year(DateReport) == 2014 & hcw.type %in% 'Lab')
+  filter( year(dateOnset) == 2014 & hcw.type %in% 'Lab')
 
 paste( unique(L$HCWposition), collapse = ', ') 
 ```
@@ -703,7 +748,7 @@ paste( unique(L$HCWposition), collapse = ', ')
 Medecin: 
 ```{r}
 M= h  %>%  
-  filter( year(DateReport) == 2014 & hcw.type %in% 'Medecin')
+  filter( year(dateOnset) == 2014 & hcw.type %in% 'Medecin')
 
 paste( unique(M$HCWposition), collapse = ', ') 
 ```
@@ -711,7 +756,7 @@ paste( unique(M$HCWposition), collapse = ', ')
 Other: 
 ```{r}
 O = h  %>%  
-  filter( year(DateReport) == 2014 & hcw.type %in% 'Other')
+  filter( year(dateOnset) == 2014 & hcw.type %in% 'Other')
 
 paste( unique(O$HCWposition), collapse = ', ') 
 ```
