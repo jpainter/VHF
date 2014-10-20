@@ -45,6 +45,9 @@ library(dplyr, quietly=TRUE) # order is important...
 
 ```
 
+
+# Data 
+
 - Data loaded from export of VHF database.^[export cases as .csv, then open and save file as excel]
 
 ```{r read}
@@ -53,9 +56,9 @@ library(dplyr, quietly=TRUE) # order is important...
 # 1. Make sure Region settings (control panel) are set to English(UK)
 # 2. open csv file in excel, then save as an excel spreadsheet.
 
-file.name = "guinea_cases_10_Oct"
+file.name = "guinea_cases_19_Oct"
 
-dir = 'C:\\Users\\bzp3\\desktop\\_Ebola\\VHF\\fieldData\\'
+dir = 'fieldData\\'  # folder, relative to this project, with spreadsheets
 
 excel.file = paste0(dir, file.name, '.xlsx') 
 wb = loadWorkbook(excel.file)
@@ -77,7 +80,8 @@ epiCaseDef = data.frame(EpiCaseDef = c(0,1,2,3,4),
                                           'Probable','Suspect', 'Exclude'))
 
 cases = case_data %>% 
-  select( ID, Surname, OtherNames,
+  select( GlobalRecordId, ID, ThisCaseIsAlsoContact,
+          Surname, OtherNames,
           StatusAsOfCurrentDate, EpiCaseDef , 
           DateReport, Age, AgeUnit, Gender, DateDeath, 
           StatusReport, VillageRes, ParishRes, CountryRes,
@@ -168,13 +172,11 @@ save(cases, file='cases.rda')
 missingPeriod = cases %>% filter(is.na(dateOnset)) %>% select(ID)
 ```
 
-- Most recent data included in this report is from 
+- The most recent case included in this report had symptom onset on 
 **`r format(max(cases$DateReport, na.rm=TRUE), "%d-%B-%Y")`**.
 
 - There are `r nrow(missingPeriod)` records with missing dates:   
 `r cat(missingPeriod$ID, sep=', ')`
-
-\newpage
 
 # Epicurve by Month
 
@@ -325,6 +327,8 @@ t[is.na(t)] <- 0  # convert NA to 0
 kable(t)  # print table
 
 ```
+
+\newpage
 
 # Cases by Prefecture
 
@@ -480,7 +484,7 @@ theme_map =  # coord_map() +
      )
 ```
 
-```{r epicurve_facet, fig.height=8, fig.cap='Weekly Case Count by Region, Guinee'}
+```{r epicurve_facet, fig.height=8, fig.width=6.5, fig.cap='Weekly Case Count by Region, Guinee'}
 
 # epicurve by week, Region (2014 only) 
 load('regions.rda')
@@ -500,7 +504,7 @@ cases %>%
   summarize( freq = n() ) %>%  
   ggplot( aes(x = period , y = freq, fill = DistrictRes) ) +
   geom_bar( stat = 'identity', color = 'white') +
-  scale_x_date('Week', labels = date_format("%b-%dd"),
+  scale_x_date('Week', labels = date_format("%b-%d"),
                breaks = date_breaks("week")) +
   ylab('Cases') + 
   theme(axis.text.x = element_text(angle = 90, hjust = 1) ) +
@@ -544,7 +548,6 @@ p[is.na(p)] <- 0  # convert NA to 0
 kable(p)  # print table
 
 ```
-
 
 ```{r prefets, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee"}
 
@@ -593,7 +596,6 @@ g
 ggsave('PrefetMap3.png')
 
 ```
-
 
 # Cases by Sous Prefecture
 
@@ -744,7 +746,7 @@ ggsave('sousPrefetMap_all.png')
 
 # Personnel de sante infecté et décedé par suite d'Ebola
 
-```{r list_hcw_data, fig.height=6.5, fig.width=6.5}
+```{r hcw_data}
 
 # chart of hcw infection by type of work
 
@@ -760,8 +762,12 @@ h = cases %>%
                                   'Other')))
          ) %>%  
   filter( year(dateOnset) == 2014 ) %>%
-  merge(Region) 
+  merge(regions, all.x = TRUE) 
+```
 
+Since the onset of the epidemic, there have been `r nrow(h) ` cases among health care workers.
+
+```{r chart_hcw_data, fig.height=8, fig.width=6.5}
 h %>%
   ggplot( aes(x = interval ) )+
   geom_bar( aes(y = ..count.., fill = hcw.type), 
@@ -778,7 +784,14 @@ ggsave('epicurve_HCW.png', width=8, height=6 )
 
 ```
 
-For the sake of visualiztion, data avaialable on the type health work was classified as Infirmiere, Lab, Medecin, or other.  The following table lists the position descriptions available for type of health care worker.
+For the sake of visualiztion, data avaialable on the type health work was classified as Infirmiere, Lab, Medecin, or other.  
+
+The following table lists the position descriptions available for type of health care worker.  
+
+`r kable(h %>% count(hcw.type))`
+
+The free text given for each type is shown below.  
+
 
 Infirmiere: 
 ```{r}
