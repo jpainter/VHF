@@ -9,9 +9,7 @@ output:
     latex_engine: xelatex
     number_sections: yes
     toc: yes
-  word_document:
-  - toc: yes
-  
+
 header-includes:
 - \usepackage[section]{placeins}
 - \usepackage{setspace}
@@ -46,6 +44,7 @@ library(dplyr, quietly=TRUE) # order is important...
 ```
 
 
+# Ca
 # Data 
 
 - Data loaded from export of VHF database.^[export cases as .csv, then open and save file as excel]
@@ -329,8 +328,7 @@ kable(t)  # print table
 ```
 
 \newpage
-
-# Cases by Prefecture
+ses by Prefecture
 
 - Y compris les cas confirme et probable, et suspect
 
@@ -416,6 +414,8 @@ GIN3[GIN3$NAME_2 == 'Conarky', 'NAME_2'] = 'Conakry'
                        mutate(Name = Names[,'NAME_3'],
                               Type = Names[,'TYPE_3']
                               )
+# fix name of capital in GADM file!
+GIN3.c[GIN3.c$Name == 'Conarky', 'Name'] = 'Conakry'
 
 # Admin 2
 
@@ -446,6 +446,9 @@ GIN2[GIN2$NAME_2 == 'Conarky', 'NAME_2'] = 'Conakry'
                        mutate(Name = Names[,'NAME_2'],
                               Type = Names[,'TYPE_2']
                               ) 
+
+# fix name of capital in GADM file!
+GIN2.c[GIN2.c$Name == 'Conarky', 'Name'] = 'Conakry'
 
 ```
 
@@ -575,8 +578,10 @@ p$Cases3 =  cut( p[, 'weeks3'],
 p$NAME_2 = p$DistrictRes
 map.data.p = merge(GIN2, p, all.x=TRUE, 
                  by.y='NAME_2', by.x = 'NAME_2') %>%
-  arrange(order)
+  merge(GIN2.c, all.x = TRUE) %>%
+  arrange(order) 
 
+map.data.p.c = merge(GIN2.c, p, all.x=TRUE, by.y='NAME_2', by.x = 'Name') 
 
 # define colors
 color.brewer = "PuRd" 
@@ -595,6 +600,17 @@ g = ggplot( ) + theme_map +
 g
 ggsave('PrefetMap3.png')
 
+```
+
+```{r prefets_dot, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee"}
+g = ggplot( ) + theme_map +
+  geom_polygon(data= map.data.p,
+               aes(x=long, y=lat, group=group), 
+               fill="grey90", color = 'grey10') + 
+  geom_point(data= map.data.p.c, aes(x=V1, y=V2, size = Cases3, alpha = Cases3), 
+             color = "red") 
+g
+ggsave('PrefetMap4.png')
 ```
 
 # Cases by Sous Prefecture
@@ -759,30 +775,63 @@ h = cases %>%
                            'Medecin', 
                 ifelse( grepl('INF', toupper(HCWposition))
                                    , 'Infirmiere', 
-                                  'Other')))
+                                  'Other'))),
+         frequency = 1
          ) %>%  
   filter( year(dateOnset) == 2014 ) %>%
-  merge(regions, all.x = TRUE) 
+  select( DistrictRes, SCRes, interval, hcw.type, HCWposition, StatusAsOfCurrentDate, frequency) %>%
+  merge(regions, all.x = TRUE) %>%
+  arrange(interval, hcw.type ) 
 ```
 
-Since the onset of the epidemic, there have been `r nrow(h) ` cases among health care workers.
+Since the onset of the epidemic, there have been 
+`r nrow(h) ` cases among health care workers.
 
 ```{r chart_hcw_data, fig.height=8, fig.width=6.5}
-h %>%
-  ggplot( aes(x = interval ) )+
-  geom_bar( aes(y = ..count.., fill = hcw.type), 
-            binwidth=1, color = 'white') +
-#   geom_text( aes(label = StatusAsOfCurrentDate) ) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+
+# point shapes in each box
+h.2 = h %>%
+  select(interval, DistrictRes, hcw.type, StatusAsOfCurrentDate, frequency) %>% 
+  arrange(interval, hcw.type, StatusAsOfCurrentDate) %>%
+  group_by(interval, DistrictRes) %>%
+  mutate( 
+    cumsum = cumsum( frequency) ,
+    midpoint = cumsum - .5
+    )
+
+h.2 %>%
+  ggplot( aes(x = interval ) ) +
+  geom_bar( aes(y = frequency, fill = hcw.type), 
+            stat = 'identity', color = 'white') +
+  geom_point(data = h.2, 
+             aes(y = midpoint, ymax = midpoint, 
+                 shape = StatusAsOfCurrentDate, 
+                 alpha = StatusAsOfCurrentDate)
+             ) +
+  theme(axis.text.x = element_text(angle = 90),
         legend.position = 'top' ) +
   scale_x_discrete('Week') +
   scale_fill_discrete('Position') +
-  scale_shape_discrete('Status') +
+  scale_shape_manual('Status', values = c(19,19)) +
+  scale_alpha_manual('Status', values = c(1,0)) +
   facet_grid( DistrictRes ~ .) 
 
 ggsave('epicurve_HCW.png', width=8, height=6 )
 
 ```
+
+Of these, 
+`r nrow(h %>% filter(StatusAsOfCurrentDate == 'Décédé'))` died.
+
+```{r hcw_risk}
+t = with(h, table(hcw.type, StatusAsOfCurrentDate))
+prop.table(t, 1)
+
+t = with(h %>% filter(hcw.type == 'Other'), table(HCWposition, StatusAsOfCurrentDate))
+t.p = prop.table(t, 1)
+kable(t)
+```
+
 
 For the sake of visualiztion, data avaialable on the type health work was classified as Infirmiere, Lab, Medecin, or other.  
 
@@ -796,25 +845,23 @@ The free text given for each type is shown below.
 Infirmiere: 
 ```{r}
 I = h  %>%  
-  filter( year(dateOnset) == 2014 & hcw.type %in% 'Infirmiere')
+  filter(hcw.type %in% 'Infirmiere')
 
 paste( unique(I$HCWposition), collapse = ', ') 
 ```
 
-
 Lab: 
 ```{r}
 L = h  %>%  
-  filter( year(dateOnset) == 2014 & hcw.type %in% 'Lab')
+  filter( hcw.type %in% 'Lab')
 
 paste( unique(L$HCWposition), collapse = ', ') 
 ```
 
-
 Medecin: 
 ```{r}
 M= h  %>%  
-  filter( year(dateOnset) == 2014 & hcw.type %in% 'Medecin')
+  filter(hcw.type %in% 'Medecin')
 
 paste( unique(M$HCWposition), collapse = ', ') 
 ```
@@ -822,7 +869,7 @@ paste( unique(M$HCWposition), collapse = ', ')
 Other: 
 ```{r}
 O = h  %>%  
-  filter( year(dateOnset) == 2014 & hcw.type %in% 'Other')
+  filter( hcw.type %in% 'Other')
 
 paste( unique(O$HCWposition), collapse = ', ') 
 ```
