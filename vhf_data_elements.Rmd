@@ -460,7 +460,7 @@ x = cky.cases %>%
 
 ## Cases that were Contacts, Sep-Oct, Conakry
 
-```{r epicurve_cases_were_contacts, fig.height=5.5, fig.width=10}
+```{r epicurve_cases_were_contacts, fig.height=6, fig.width=10}
 
 load('cky.cases.rda')
 
@@ -499,6 +499,7 @@ cky.cases %>%
   scale_x_date('Week beginning', labels = date_format("%b-%d"),
                breaks = date_breaks("week")) +
   ylab('Cases') + 
+  theme_bw() +
   theme(axis.text.x = element_text(angle = 90, hjust = 2),
        legend.position = 'top' ) +
   facet_grid(SCRes ~ .)
