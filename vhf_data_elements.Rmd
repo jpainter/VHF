@@ -1,0 +1,836 @@
+---
+title: "VHF DATA"
+author: "EPI TASK FORCE"
+date: "Tuesday, November 18, 2014"
+output:
+  slidy_presentation: default
+  ioslides_presentation:
+    transition: faster
+    widescreen: yes
+  beamer_presentation: default
+---
+
+```{r setup, echo=FALSE, results='hide', message=FALSE, warning=FALSE }
+options(tz="GMT+0")
+Sys.setenv(TZ='GMT+0')
+
+library(knitr)
+opts_chunk$set( echo=FALSE, message=FALSE, comment="", 
+                warnings=FALSE, results='asis',
+                cache = FALSE)
+library(mi)
+library(Hmisc)
+library(XLConnect, quietly=TRUE)
+library(lubridate)
+library(plyr)
+
+library(ggplot2)
+library(scales)
+library(RColorBrewer)
+
+library(tidyr)
+library(dplyr, quietly=TRUE) # order is important...
+
+library(rgeos)
+```
+
+# VHF Data Elements
+
+## VHF Data, Guinea: **Cases**
+
+```{r read_cas_G}
+
+# In order for this import to work, must do 2 things first:
+# 1. Make sure Region settings (control panel) are set to English(UK)
+# 2. open csv file in excel, then save as an excel spreadsheet.
+### note need to correct cell  AW-1455 from '=+Yambala' to 'Yambala'
+
+dir = 'fieldData/'
+
+file.name = "guinea_cases_10_Nov"  
+
+excel.file = paste0(dir, file.name, '.xlsx') 
+wb = loadWorkbook(excel.file)
+case_data.guinea = readWorksheet(wb, file.name, )
+
+# csv.file = paste0(dir, file.name, '.csv')
+# case_data = read.csv(csv.file, header=TRUE)
+
+save(case_data.guinea, file='case_data.guinea.rda')
+```
+
+```{r Define_case_data_G}
+load('case_data.guinea.rda')
+
+epiCaseDef = data.frame(EpiCaseDef = c(0,1,2,3,4),
+                     EpiCaseDef.label = c('Non-Cas','Confirme',
+                                          'Probable','Suspect', 'Exclude'))
+
+# if else with dates can be troublesome.  see sol at 
+# http://stackoverflow.com/questions/6668963/how-to-prevent-ifelse-from-turning-date-objects-into-numeric-objects
+date.ifelse <- function(cond, yes, no){ class.y <- class(yes)
+                                  X <- ifelse(cond,yes,no)
+                                  class(X) <-class.y; return(X)}
+
+
+last.report.date = max(case_data.guinea$DateReport, na.rm=T) # last day with report
+current.week = week(last.report.date)  
+
+cases.guinea = case_data.guinea %>% 
+  select( ID, StatusAsOfCurrentDate, 
+          EpiCaseDef , StatusReport, FinalStatus,
+          ThisCaseIsAlsoContact, TotalContactsListed, 
+          DateReport, DateOnset,
+          DateHospitalCurrentAdmit, DateIsolationCurrent,
+          Age, AgeUnit, Gender, DateDeath, 
+          VillageRes, ParishRes, CountryRes,
+          DistrictRes, SCRes, HCW, HCWposition, HCWFacility, 
+          Funeral, Animals, 
+          Contact, ContactName1, ContactRelation1, ContactDateStart1, ContactDateEnd1,
+          ContactName2, ContactRelation2,  ContactDateStart2, ContactDateEnd2
+          ) %>% 
+  filter(!EpiCaseDef==4) %>% # drop 'excluded'
+  mutate( EpiCaseDef = as.integer(EpiCaseDef)) %>%
+  inner_join(epiCaseDef) %>%  
+  mutate( 
+          dateOnset = 
+            date.ifelse( is.na(DateOnset), DateReport, DateOnset )
+            , # use onset date if available; DateReport otherwise
+          week = week(dateOnset)  ,
+          # calculate periods based on week function, starting with day before current date
+          period_wk = ifelse( week == current.week, "Week", 
+                          ifelse( week == ( current.week - 1 ), "Week_1",
+                                 ifelse( week == ( current.week - 2 ), "Week_2",
+                                        ifelse( week == ( current.week - 3 ), "Week_3",
+                                        ifelse( week== ( current.week - 4 ), 
+                                               "Week_4", "Previous"))))),
+          period_wk = factor(period_wk, 
+                          levels = c('Week','Week_1','Week_2', 'Week_3', 'Week_4', 'Previous') ),
+          
+          # calculate periods based on 7 day intervals, 
+          # starting with day before current date
+          period = date.ifelse( dateOnset %within% 
+                             interval(last.report.date-edays(6),
+                                      last.report.date
+                                      ), "Last 7 days", 
+                    date.ifelse(dateOnset %within% 
+                           interval(last.report.date-edays(13), 
+                                    last.report.date-edays(7)), "Previous 8-14 days",
+                    date.ifelse(dateOnset %within% 
+                             interval(last.report.date-edays(20), 
+                                      last.report.date-edays(14)), "Previous 15-21 days", 
+                           "Previous"))),
+          period = factor(period, 
+                          levels = c('Last 7 days','Previous 8-14 days',
+                                     'Previous 15-21 days', 'Previous') ),
+          onset.last21days = ifelse( dateOnset  %within% 
+                                     interval(Sys.Date()-edays(1), 
+                                              Sys.Date()-edays(22)), 
+                                     TRUE, FALSE) ,
+          CaseMonth = paste(month(dateOnset), year(dateOnset)),
+          Status = EpiCaseDef.label
+          ) %>%
+    filter( Status %in% c('Confirme','Probable', 'Suspect'))
+
+save(cases.guinea, file = 'cases.guinea.rda')
+```
+
+```{r Guinea_missing, fig.height=5}
+load('cases.guinea.rda')
+
+data = cases.guinea %>% 
+#   arrange(DateReport) %>%
+  select(EpiCaseDef,  DateReport, 
+         DateOnset, DateIsolationCurrent, 
+         DateHospitalCurrentAdmit,
+         StatusAsOfCurrentDate, 
+         Age , Gender, 
+         DistrictRes, SCRes,
+         HCW, Funeral, Animals, 
+         Contact) 
+
+par(mai=c(1,3,0,0.1))
+missing.pattern.plot( data ,clustered=FALSE,
+                      xlab= paste0("observations (n=", nrow(data), ")" ),
+                      main = ''
+                      )
+
+# cat("VHF cases reports through", last.report.date )
+
+# mis =  mi.info(cases2) 
+# miss = data.frame(mis$name, mis$nmis, mis$type)
+# colnames(miss) = c('Variable', 'Nmiss', 'Type')
+# kable(miss, row.names=F)
+
+```
+
+Available data (blue) for select variable among confirmed, suspect, and probable cases
+
+## VHF Data, Sierra Leone: **Cases**
+
+```{r read_cas_SL}
+
+# In order for this import to work, must do 2 things first:
+# 1. Open accdb each VHF_CIF file and export to EXCEL, then
+# 2. Export to CSV
+
+dir = 'fieldData/'
+
+file.name = "VHF_CIF1"
+cif1 = read.csv( paste0(dir, file.name, '.csv'), header = TRUE, stringsAsFactors = FALSE)
+
+file.name = "VHF_CIF2"
+cif2 = read.csv( paste0(dir, file.name, '.csv'), header = TRUE, stringsAsFactors = FALSE)
+
+case_data.sl = inner_join(cif1, cif2) %>%
+  mutate( DateReport = dmy(DateReport),
+          DateOnset = dmy(DateOnset) ,
+          DateIsolationCurrent = dmy(DateIsolationCurrent))
+
+save(case_data.sl, file='case_data.sl.rda')
+```
+
+```{r Define_case_data_SL}
+load('case_data.sl.rda')
+
+epiCaseDef = data.frame(EpiCaseDef = c(0,1,2,3,4),
+                     EpiCaseDef.label = c('Non-Case','Confirmed',
+                                          'Probable','Suspect', 'Excluded'))
+
+# if else with dates can be troublesome.  see sol at 
+# http://stackoverflow.com/questions/6668963/how-to-prevent-ifelse-from-turning-date-objects-into-numeric-objects
+date.ifelse <- function(cond, yes, no){ class.y <- class(yes)
+                                  X <- ifelse(cond,yes,no)
+                                  class(X) <-class.y; return(X)}
+
+last.report.date = max(case_data.sl$DateReport, na.rm=T) # last day with report
+current.week = week(last.report.date)  
+
+cases.sl = case_data.sl %>% 
+  select( ID, StatusAsOfCurrentDate, 
+          EPICaseDef , StatusReport, FinalStatus,
+          DateReport, DateOnset,
+          DateHospitalCurrentAdmit, DateIsolationCurrent,
+          Age, AgeUnit, Gender, DateDeath, 
+          VillageRes, ParishRes, CountryRes,
+          DistrictRes, SCRes, HCW, HCWposition, HCWFacility, 
+          Funeral, Animals, 
+          Contact, ContactName1, ContactRelation1, ContactDateStart1, ContactDateEnd1,
+          ContactName2, ContactRelation2,  ContactDateStart2, ContactDateEnd2
+          ) %>% 
+  filter(!EPICaseDef==4) %>% # drop 'excluded'
+  mutate( EPICaseDef = as.integer(EPICaseDef)) %>%
+  inner_join(epiCaseDef, by = c('EPICaseDef' = 'EpiCaseDef')) %>%  
+  mutate( 
+          dateOnset = 
+            date.ifelse( is.na(DateOnset), DateReport, DateOnset )
+            , # use onset date if available; DateReport otherwise
+          week = week(dateOnset)  ,
+          # calculate periods based on week function, starting with day before current date
+          period_wk = ifelse( week == current.week, "Week", 
+                          ifelse( week == ( current.week - 1 ), "Week_1",
+                                 ifelse( week == ( current.week - 2 ), "Week_2",
+                                        ifelse( week == ( current.week - 3 ), "Week_3",
+                                        ifelse( week== ( current.week - 4 ), 
+                                               "Week_4", "Previous"))))),
+          period_wk = factor(period_wk, 
+                          levels = c('Week','Week_1','Week_2', 'Week_3', 'Week_4', 'Previous') ),
+          
+          # calculate periods based on 7 day intervals, 
+          # starting with day before current date
+          period = date.ifelse( dateOnset %within% 
+                             interval(last.report.date-edays(6),
+                                      last.report.date
+                                      ), "Last 7 days", 
+                    date.ifelse(dateOnset %within% 
+                           interval(last.report.date-edays(13), 
+                                    last.report.date-edays(7)), "Previous 8-14 days",
+                    date.ifelse(dateOnset %within% 
+                             interval(last.report.date-edays(20), 
+                                      last.report.date-edays(14)), "Previous 15-21 days", 
+                           "Previous"))),
+          period = factor(period, 
+                          levels = c('Last 7 days','Previous 8-14 days',
+                                     'Previous 15-21 days', 'Previous') ),
+          onset.last21days = ifelse( dateOnset  %within% 
+                                     interval(Sys.Date()-edays(1), 
+                                              Sys.Date()-edays(22)), 
+                                     TRUE, FALSE) ,
+          CaseMonth = paste(month(dateOnset), year(dateOnset)),
+          Status = EpiCaseDef.label
+          ) %>%
+    filter( Status %in% c('Confirmed','Probable', 'Suspect') & 
+              dateOnset > ymd('2014-JUN-01'))
+
+# function to convert text to Title Case (when strict = F, ignores all upper case words)
+TitleCase = function(s, strict = TRUE) {
+    cap <- function(s) paste(toupper(substring(s, 1, 1)),
+                  {s <- substring(s, 2); if(strict) tolower(s) else s},
+                             sep = "", collapse = " " )
+    sapply(strsplit(s, split = " "), cap, USE.NAMES = !is.null(names(s)))
+}
+
+# TitleCase(c("using AIC for model selection"))
+# TitleCase(c("HELP"))
+
+cases.sl = cases.sl %>%
+  mutate(
+    DistrictRes = TitleCase(DistrictRes),
+    SCRes = TitleCase(SCRes)
+    )
+
+# table(cases$DistrictRes)
+
+  cases.sl[cases.sl$DistrictRes %in% 'Western Area Rural', 'DistrictRes'] = 'Western Rural'
+  
+  cases.sl[cases.sl$DistrictRes %in% "Western Area Urban", 'DistrictRes'] = 'Western Urban'
+  
+  cases.sl[cases.sl$DistrictRes %in% 'Tonkllili', 'DistrictRes'] = 'Tonkolili'
+
+    cases.sl[cases.sl$DistrictRes %in% 'Free Town', 'DistrictRes'] = 'Western Urban'
+
+    cases.sl[cases.sl$DistrictRes %in% '..tonkolili', 'DistrictRes'] = 'Tonkolili'
+
+  cases.sl[cases.sl$DistrictRes %in% 'Kenenma', 'DistrictRes'] = 'Kenema'
+
+# save cases data
+save(cases.sl, file='cases.sl.rda')
+
+```
+
+```{r SL_missing, fig.height=5}
+load('cases.sl.rda')
+
+data = cases.sl %>% select(EPICaseDef,  
+                        DateOnset, DateIsolationCurrent, 
+                        StatusAsOfCurrentDate, 
+                        Age , Gender, 
+                        DistrictRes, SCRes,
+                        HCW, Funeral, Animals, 
+                        Contact)
+
+par(mai=c(1,3,0,0))
+missing.pattern.plot( data ,clustered=FALSE,
+                      xlab= paste0("observations (n=", nrow(data), ")" ),
+                      main = ''
+                      )
+
+```
+
+Available data (blue) for select variable among confirmed, suspect, and probable cases
+
+## VHF Data, Guinea: **Contacts**
+
+```{r read_contacts}
+
+# In order for this import to work, must do 2 things first:
+# 1. Make sure Region settings (control panel) are set to English(UK)
+# 2. open csv file in excel, then save as an excel spreadsheet.
+
+file.name = "guinea_contacts_10_Nov"
+
+dir = 'fieldData/'
+
+excel.file = paste0(dir, file.name, '.xlsx') 
+wb = loadWorkbook(excel.file)
+contact_data.guinea = readWorksheet(wb, file.name)
+
+contacts.guinea = contact_data.guinea %>%
+  mutate(ContactMonth = paste(month(DateLastContact), year(DateLastContact)) ) %>%
+  arrange(DateLastContact)
+
+save(contacts.guinea, file = "contacts.guinea.rda")
+
+```
+
+```{r mi_contacts, fig.height=5}
+# paste(colnames(contacts.guinea), collapse = ', ')
+
+contact.cols = c('ThisContactIsAlsoCase', 'Surname', 'OtherNames', 'Gender', 'Age', 'HeadHousehold', 'Village', 'District', 'SubCounty', 'SourceCaseID', 'SourceCase', 'RelationshipToCase', 'ContactTypes', 'DateLastContact', 'DateOfLastFollowUp', 'FinalOutcome')
+
+par(mai=c(1,3,0,.1))
+missing.pattern.plot( contacts.guinea[, contact.cols] ,clustered=FALSE,
+                      xlab= paste0("observations (n=", nrow(contacts.guinea), ")" ),
+                      main = '')
+```
+
+- Approximately 3 contacts per case, evidence of missing contact reports
+
+## VHF Data, Sierra Leone: **Contacts**
+
+- no data available
+
+
+# Suggested Process Measures
+
+## Number of Contacts Traced
+```{r contacts_traced_g, fig.height=3}
+load('regions.rda')
+Region = regions %>%  # table includes Region, DistrictRes, SCRes
+  select(-SCRes) %>% # remove SCRes
+  unique()
+
+load('contacts.guinea.rda')
+
+data = contacts.guinea %>% 
+  select( DateLastContact, RelationshipToCase, District, DateOfLastFollowUp, FinalOutcome) %>%
+  merge(Region, all.x = TRUE, by.x ='District' , by.y = 'DistrictRes' ) %>%
+  mutate( daysFollowed = as.numeric( as.Date(DateOfLastFollowUp) - as.Date(DateLastContact) ),
+          RelationshipToCase = factor(RelationshipToCase),
+          month = month(DateLastContact)
+          ) 
+
+data. = data %>% count(Region, month) 
+
+data. = data. %>% filter(Region %in% c('Conakry'))
+ 
+g = ggplot(data., aes( month, n)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('Number Contacts') +
+  geom_bar(stat = 'identity') +
+  facet_grid( Region ~ .)
+# g
+
+load('cases.guinea.rda')
+case.month = cases.guinea %>% mutate( month = month(dateOnset) ) %>% 
+  merge(Region, all.x = TRUE, by = 'DistrictRes') %>%
+  filter(Region %in% 'Conakry' | is.na(Region)) %>%
+  count(month)
+
+contact.case = data. %>% inner_join(case.month, by='month') %>%
+  mutate(contact.case = round(n.x/n.y, 1))
+
+h = ggplot(data=contact.case, aes(month, contact.case)) + geom_line() +
+  scale_y_continuous('Contacts per Case' ) +
+  scale_x_continuous('Month', breaks = c(1:12))
+
+library(gridExtra)
+grid.arrange(g, h)
+```
+
+- VHF only has contacts from Conakry
+- Other contact lists maintained on offline spreadsheets
+- Mid-October, Conakry contacts moved to offline spreadsheet only
+- Actual number of contacts:case ~ 20:1
+
+## Cases that were Contacts, Sep-Oct, Conakry
+
+```{r cases_found_among_contact, fig.height=4, fig.width=10}
+
+load('cky.cases.rda')
+
+sourceCases = cases %>% 
+  filter(ID %in% cky.cases$SourceCaseID) %>%
+  rename(SourceCaseID = ID, sourceSCRes = SCRes) %>%
+  select(SourceCaseID, sourceSCRes) 
+  
+cky.cases %>% 
+  left_join(sourceCases, by= c('SourceCaseID'='SourceCaseID')) %>%
+  mutate( 
+          period = as.Date(floor_date(dateOnset, "week")),
+          SCRes = toupper(SCRes)
+          ) %>% 
+  group_by( period ) %>%
+  summarize( n = n(),
+             contact = sum(WasContact, na.rm=T),
+             caseContacts = contact/n
+             )  %>%
+  ## plot
+  ggplot( aes(x = period , y = caseContacts) ) +
+  geom_line() +  geom_point( aes(size = n)) + 
+  scale_x_date('Week beginning', labels = date_format("%b-%d"),
+               breaks = date_breaks("week")) +
+  ylab('Percent Cases Known Contacts') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 2),
+       legend.position = 'top' ) 
+
+# percent cases that were contacts
+x = cky.cases %>% 
+  left_join(sourceCases, by= c('SourceCaseID'='SourceCaseID')) %>%
+  summarise( n = n(),
+             contact = sum(WasContact),
+             caseContacts = percent(contact/n)
+             )
+
+```
+
+- Probablisitic linkage of contact registry with case registry
+- Overall, `r x[1,3]` of cases were known contacts
+- Limited by missing contact records
+
+## Cases that were Contacts, Sep-Oct, Conakry
+
+```{r epicurve_cases_were_contacts, fig.height=5.5, fig.width=10}
+
+load('cky.cases.rda')
+
+# t = with(cky.cases, table(SCRes, WasContact))
+# kable( t  )
+
+# cat('NOTE: For', sum(is.na(cky.cases$SCRes)) ,'cases, DistrictRes is missing')
+
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+
+sourceCases = cases %>% 
+  filter(ID %in% cky.cases$SourceCaseID) %>%
+  rename(SourceCaseID = ID, sourceSCRes = SCRes) %>%
+  select(SourceCaseID, sourceSCRes) 
+  
+cky.cases %>% 
+  left_join(sourceCases, by= c('SourceCaseID'='SourceCaseID')) %>%
+  mutate( idnum = substrRight(ID, 4),
+          period = as.Date(floor_date(dateOnset, "week")),
+          SCRes = toupper(SCRes),
+          VillageRes = toupper(VillageRes),
+          WasContact = factor(WasContact, c(0,1), c('No','Yes'))
+          ) %>% 
+  group_by( period, SCRes, idnum, WasContact, sourceSCRes ) %>%
+  summarize( freq = n() ) %>%  
+  mutate( cumsum = cumsum(freq),
+          midpoint = (cumsum(freq) - 0.5 * freq)) %>%
+  ## plot
+  ggplot( aes(x = period , y = freq) ) +
+  geom_bar( stat = 'identity', aes( fill=sourceSCRes), color = "grey90" ) +
+  scale_fill_discrete('Case Was a Contact of Case in:') + # values = c('grey90', 'black')) +
+  scale_color_discrete('Case Was a Contact of Case in:') +
+#   geom_text( aes(y = midpoint, ymax=midpoint, label = idnum), size = 2, hjust=1) +
+  scale_x_date('Week beginning', labels = date_format("%b-%d"),
+               breaks = date_breaks("week")) +
+  ylab('Cases') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 2),
+       legend.position = 'top' ) +
+  facet_grid(SCRes ~ .)
+```
+
+## Secondary Cases, Sep-Oct, Conakry
+
+```{r secondary_cases, fig.height=4, fig.width=10}
+load('cky.cases.rda')
+
+john.ben.interval = new_interval(ymd("2014-SEP-1"), ymd("2014-OCT-30"))
+
+t = cky.cases %>% 
+  filter(dateOnset %within% john.ben.interval ) %>%
+  count(SourceCaseID) %>%
+  arrange(-n) %>%
+  rename(Number_2ndary_Cases = n)
+
+# kable(t)
+
+total.secondary = sum(t$Number_2ndary_Cases, na.rm=T)
+number.sources = sum(!is.na(t$SourceCaseID))
+
+t %>% filter(!is.na(t$SourceCaseID)) %>%
+ggplot(aes(x=Number_2ndary_Cases )) +
+  geom_bar() +
+  scale_x_continuous('Number of secondary cases', 
+                     breaks = seq(1, max(t$Number_2ndary_Cases), 2)
+                     ) 
+#   geom_annotate(x=7, y=10, type='text', text=paste('))
+```
+
+- There were `r x[1,2]` (`r percent(x[1,2] / nrow(cky.contacts) )`) cases among `r nrow(cky.contacts) ` contacts.
+- One case resulted in 15 cases among `r cky.contacts %>% filter(SourceCaseID %in% 'GUI-CKY-14-1365') %>% count()` contacts.  
+- One case resulted in 12 cases among `r cky.contacts %>% filter(SourceCaseID %in% 'GUI-CKY-14-0988') %>% count()` contacts.
+
+
+# Other Indicators
+
+
+# Days to Isolation
+
+## Days to Isolation, Guinea
+```{r isolation_g, warning=FALSE}
+load('regions.rda')
+Region = regions %>%  # table includes Region, DistrictRes, SCRes
+  select(-SCRes) %>% # remove SCRes
+  unique()
+
+# Time from onset to isolation
+load('cases.guinea.rda')
+data = cases.guinea %>% 
+  select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  filter(DateIsolationCurrent > DateOnset ) %>%
+  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ) ) %>%
+  filter(daysToIso < 28)
+ 
+g = ggplot(data, aes( month(DateOnset), daysToIso)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('Days to Isolation', breaks = seq(0, 28, 2)) +
+    geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
+    scale_colour_manual('Status', values = c("red", "green")) +
+    geom_boxplot( aes(group = month(DateOnset)) , outlier.shape = NA, fill = NA)  
+# + 
+#   facet_grid( Region ~ .)
+g
+```
+
+## Days to Isolation by Region, Guinea
+### Conakry v. Forrest Region
+```{r isolation_g_region, warning=FALSE}
+load('regions.rda')
+Region = regions %>%  # table includes Region, DistrictRes, SCRes
+  select(-SCRes) %>% # remove SCRes
+  unique()
+
+# Time from onset to isolation
+load('cases.guinea.rda')
+data = cases.guinea %>% 
+  select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  filter(DateIsolationCurrent > DateOnset ) %>%
+  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ) ) %>%
+  filter(daysToIso < 28) 
+
+data = data %>% filter(Region %in% c('Nzérékoré', 'Conakry'))
+ 
+g = ggplot(data, aes( month(DateOnset), daysToIso)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('Days to Isolation', breaks = seq(0, 28, 2)) +
+    geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
+    scale_colour_manual('Status', values = c("red", "green")) +
+    geom_boxplot( aes(group = month(DateOnset)) , outlier.shape = NA, fill = NA)  +
+  facet_grid( Region ~ .)
+g
+```
+
+## Days to Isolation, SL
+### Bombali, Kailahun, Kenema, Moyamba, Port Loko, Tonkolili 
+```{r isolation_sl_region, warning=FALSE}
+
+# Time from onset to isolation
+load('cases.sl.rda')
+data = cases.sl %>% 
+  select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  filter(DateIsolationCurrent > DateOnset ) %>%
+  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ) ) %>%
+  filter(daysToIso < 20) 
+
+data = data %>% filter(DistrictRes %in% c('Bombali', 'Kailahun', 'Kenema', 'Moyamba',' Port Loko', 'Tonkolili' ))
+
+g = ggplot(data, aes( month(DateOnset), daysToIso)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('Days to Isolation', breaks = seq(0, 21, 2)) +
+    geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
+    scale_colour_manual('Status', values = c("grey", "green", 'red')) +
+    geom_boxplot( aes(group = month(DateOnset)) , outlier.shape = NA, fill = NA)  +
+  facet_grid( DistrictRes ~ .)
+g
+```
+
+
+# Survival
+
+## Survival by Days to Isolation, Guinea
+### Conakry v. Forrest Region
+```{r survival_g, warning=FALSE, fig.height=4}
+load('regions.rda')
+Region = regions %>%  # table includes Region, DistrictRes, SCRes
+  select(-SCRes) %>% # remove SCRes
+  unique()
+
+# Time from onset to isolation
+load('cases.guinea.rda')
+data = cases.guinea %>% 
+  select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  filter(DateIsolationCurrent > DateOnset ) %>%
+  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ) ) %>%
+  filter(daysToIso < 28) 
+
+data = data %>% group_by(daysToIso, Region) %>% 
+  summarise(n=n(),
+            dead = sum(ifelse(StatusAsOfCurrentDate %in% 'Décédé',1,0)),
+            alive = sum(ifelse(StatusAsOfCurrentDate %in% 'Vivant',1,0))
+            ) %>%
+  mutate(survival = alive/ (dead + alive))
+
+data = data %>% filter(Region %in% c('Nzérékoré', 'Conakry'))
+ 
+g = ggplot(data, aes(x = daysToIso, y = survival, label = n)) +
+    geom_smooth(alpha = 0) +
+    geom_point(aes(size = n)) +
+#     geom_text(vjust = 11) +
+    scale_x_continuous('Days to Isolation', breaks = seq(0, 28, 2)) +
+    scale_y_continuous( labels = percent, breaks = seq(0,1,.1), limits = c(0,1.1) ) +
+    scale_size_continuous('Patients') +
+  facet_grid( Region ~ .)
+g
+```
+
+- Conakry VHF data likely over-represents survival because status updates delayed/missing
+
+## Survival, Donka ETU (Conakry)
+
+```{r donka, warning=FALSE}
+# library(XLConnect)
+wb = loadWorkbook('fieldData/GUI_Conakry_EbLinelist_2014_11_14.xlsx')
+donka = readWorksheet(wb, 'registre') %>% 
+  filter( Statut == 'Confirmé') 
+
+donka.= donka %>% 
+          select( Num, Nom..Prénom..âge..genre, Age, Genre, Commentaires, Date.Symptômes, Sorties, Durée.de.séjour, Origine) %>%
+  arrange( Date.Symptômes ) %>%
+  mutate( month = month(Date.Symptômes)) %>%
+  group_by( month ) %>%
+  summarize( n = n(),
+             died = sum(ifelse(Sorties %in% 'Décédé',1,0)) ,
+             survival = died / n
+             )
+
+g = ggplot(donka., aes(month, survival)) + 
+  geom_point(aes(size = n)) + geom_line() +
+    scale_x_continuous('Month', breaks = 1:12) +
+    scale_y_continuous( labels = percent, breaks = seq(0,1,.1), limits = c(0,1) ) +
+    scale_size_continuous('Patients') 
+g
+```
+
+- Restricted to confirmed cases admitted to Donka ETU
+- Mean survival rate = `r percent( nrow(donka %>% filter(Sorties %in% 'Décédé')) / nrow(donka)) `
+
+## Survival, Donka ETU (Conakry), by Case-Origin
+
+```{r donka_origin,  warning=FALSE}
+# library(XLConnect)
+wb = loadWorkbook('fieldData/GUI_Conakry_EbLinelist_2014_11_14.xlsx')
+donka = readWorksheet(wb, 'registre') %>% 
+  filter( Statut == 'Confirmé') 
+
+# clean district names with fuzz matching (agrepl)
+donka$origin = NA
+Origine = 'RATOMA'
+donka[ agrepl(Origine, donka$Origine, ignore.case = T), 'origin' ] = Origine
+Origine = 'MATOTO'
+donka[ agrepl(Origine, donka$Origine, ignore.case = T), 'origin' ] = Origine
+Origine = 'MATAM'
+donka[ agrepl(Origine, donka$Origine, ignore.case = T), 'origin' ] = Origine
+Origine = 'KALOUM'
+donka[ agrepl(Origine, donka$Origine, ignore.case = T), 'origin' ] = Origine
+Origine = 'DIXINN'
+donka[ agrepl(Origine, donka$Origine, ignore.case = T), 'origin' ] = Origine
+
+donka[is.na(donka$origin), 'origin' ] = 'Not Conakry'
+# table(donka$origin, useNA = 'always')
+
+donka.= donka %>% 
+          select( Num, Nom..Prénom..âge..genre, Age, Genre, Commentaires, Date.Symptômes, Sorties, Durée.de.séjour, Origine, origin) %>%
+  arrange( Date.Symptômes ) %>%
+  mutate( month = month(Date.Symptômes)) %>%
+  group_by( month, origin ) %>%
+  summarize( n = n(),
+             died = sum(ifelse(Sorties %in% 'Décédé',1,0)) ,
+             survival = died / n
+             )
+
+g = ggplot(donka., aes(month, survival)) + 
+  geom_point(aes(size = n)) + geom_line() +
+    scale_x_continuous('Month', breaks = 1:12) +
+    scale_y_continuous( labels = percent, breaks = seq(0,1,.2), limits = c(0,1) ) +
+    scale_size_continuous('Patients')  +
+  facet_grid( origin ~ .)
+g
+
+```
+
+- Restricted to confirmed cases admitted to Donka ETU
+
+## Survival by Days to Isolation, Sierra Leone
+```{r survival_sl, warning=FALSE}
+
+# Time from onset to isolation
+load('cases.sl.rda')
+
+data = cases.sl %>% 
+  select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, DistrictRes) %>%
+  filter(DateIsolationCurrent > DateOnset ) %>%
+  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ) ) %>%
+  filter(daysToIso < 28) 
+
+data = data %>% group_by(daysToIso) %>% 
+  summarise(n=n(),
+            dead = sum(ifelse(StatusAsOfCurrentDate %in% 'DEAD',1,0)),
+            alive = sum(ifelse(StatusAsOfCurrentDate %in% 'ALIVE',1,0))
+            ) %>%
+  mutate(survival = alive/ (dead + alive))
+ 
+g = ggplot(data, aes(x = daysToIso, y = survival, label = n)) +
+    geom_smooth(alpha = 0) +
+    geom_point(aes(size = n)) +
+#     geom_text(vjust = 11) +
+    scale_x_continuous('Days to Isolation', breaks = seq(0, 28, 2)) +
+    scale_y_continuous( labels = percent, breaks = seq(0,1,.1), limits = c(0,1.1) ) +
+    scale_size_continuous('Patients') 
+g
+```
+ 
+## Survival by Days to Isolation, SL
+### Bombali, Kailahun, Kenema, Moyamba, Port Loko, Tonkolili 
+```{r survival_sl_region, warning=FALSE}
+
+load('cases.sl.rda')
+
+data = cases.sl %>% 
+  select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, DistrictRes) %>%
+  filter(DateIsolationCurrent > DateOnset ) %>%
+  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ) ) %>%
+  filter(daysToIso < 28) 
+
+data = data %>% filter(DistrictRes %in% c('Bombali', 'Kailahun', 'Kenema', 'Moyamba',' Port Loko', 'Tonkolili' ))
+
+data = data %>% group_by(daysToIso, DistrictRes) %>% 
+  summarise(n=n(),
+            dead = sum(ifelse(StatusAsOfCurrentDate %in% 'DEAD',1,0)),
+            alive = sum(ifelse(StatusAsOfCurrentDate %in% 'ALIVE',1,0))
+            ) %>%
+  mutate(survival = alive/ (dead + alive))
+ 
+g = ggplot(data, aes(x = daysToIso, y = survival, label = n)) +
+    geom_smooth(alpha = 0) +
+    geom_point(aes(size = n)) +
+#     geom_text(vjust = 11) +
+    scale_x_continuous('Days to Isolation', breaks = seq(0, 28, 2)) +
+    scale_y_continuous( labels = percent, breaks = seq(0,1,.1), limits = c(0,1.1) ) +
+    scale_size_continuous('Patients') +
+  facet_grid(DistrictRes ~ .)
+g
+```
+ 
+## StatusAsOfCurrentDate variable, Bombali
+Something seems wrong--nearly 100% survival!
+
+```{r Bombali_error}
+load('cases.sl.rda')
+
+d = cases.sl %>% filter(DistrictRes %in% 'Bombali') %>%
+  filter(DateIsolationCurrent > DateOnset ) %>%
+  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ) ) %>%
+  filter(daysToIso < 28) %>%
+  count(StatusAsOfCurrentDate)
+
+kable(d)
+```
+
+## StatusAsOfCurrentDate variable, Bombali
+
+### same data set with no date restriction
+
+```{r Bombali_error2}
+load('cases.sl.rda')
+
+d = cases.sl %>% filter(DistrictRes %in% 'Bombali') %>%
+#   filter(DateIsolationCurrent > DateOnset ) %>%
+  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ) ) %>%
+#   filter(daysToIso < 28) %>%
+  count(StatusAsOfCurrentDate)
+
+kable(d)
+```
+
+- many records had missing Days to Isolation because DateIsolationCurrent < DateOnset 
+- when this restriction removed, many more patients, most of whom died
+- Likely that some data entry used improper date format (American vs European)

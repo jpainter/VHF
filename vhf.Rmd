@@ -31,7 +31,7 @@ library(reshape)  # use for rename() function
 library(rgeos)
 library(sp)
 
-library(ggplot2)
+suppressPackageStartupMessages(library(ggplot2))
 library(scales)
 library(grid)
 library(RColorBrewer)
@@ -55,10 +55,14 @@ library(dplyr, quietly=TRUE) # order is important...
 # 1. Make sure Region settings (control panel) are set to English(UK)
 # 2. open csv file in excel, then save as an excel spreadsheet.
 
-file.name = "guinea_cases_19_Oct"
+file.name = "guinea_cases_10_Nov"
 
-dir = 'fieldData\\'  # folder, relative to this project, with spreadsheets
+dir = 'fieldData/'  # folder, relative to this project, with spreadsheets
 
+# it still may be possible to read csv..
+# case_data =   read.csv( paste0(dir, file.name, '.csv'), header = TRUE, flush=TRUE )
+
+# read from file saved as excel
 excel.file = paste0(dir, file.name, '.xlsx') 
 wb = loadWorkbook(excel.file)
 case_data =   readWorksheet(wb, file.name)
@@ -78,9 +82,19 @@ epiCaseDef = data.frame(EpiCaseDef = c(0,1,2,3,4),
                      EpiCaseDef.label = c('Non-Cas','Confirme',
                                           'Probable','Suspect', 'Exclude'))
 
-cases = case_data %>% 
+# if else with dates can be troublesome.  see sol at 
+# http://stackoverflow.com/questions/6668963/how-to-prevent-ifelse-from-turning-date-objects-into-numeric-objects
+date.ifelse <- function(cond, yes, no){ class.y <- class(yes)
+                                  X <- ifelse(cond,yes,no)
+                                  class(X) <-class.y; return(X)}
+
+last.report.date = max(case_data$DateReport, na.rm=T) # last day with report
+current.week = week(last.report.date)  
+
+cases.guinea = case_data %>% 
   select( GlobalRecordId, ID, ThisCaseIsAlsoContact,
           Surname, OtherNames,
+          DateIsolationCurrent,
           StatusAsOfCurrentDate, EpiCaseDef , 
           DateReport, Age, AgeUnit, Gender, DateDeath, 
           StatusReport, VillageRes, ParishRes, CountryRes,
@@ -141,28 +155,28 @@ cases = case_data %>%
 ```
 
 ```{r Clean_Locations}
-  cases[cases$DistrictRes %in% 'Gueckedou', 'DistrictRes'] = 'Guéckédou'
+  cases.guinea[cases.guinea$DistrictRes %in% 'Gueckedou', 'DistrictRes'] = 'Guéckédou'
   
-  cases[cases$DistrictRes %in% "N'Zerekore", 'DistrictRes'] = 'Nzérékoré'
+  cases.guinea[cases.guinea$DistrictRes %in% "N'Zerekore", 'DistrictRes'] = 'Nzérékoré'
   
-  cases[cases$DistrictRes %in% 'Telimélé', 'DistrictRes'] = 'Télimélé'
+  cases.guinea[cases.guinea$DistrictRes %in% 'Telimélé', 'DistrictRes'] = 'Télimélé'
 
-    cases[cases$DistrictRes %in% 'Kerouane', 'DistrictRes'] = 'Kérouané'
+    cases.guinea[cases.guinea$DistrictRes %in% 'Kerouane', 'DistrictRes'] = 'Kérouané'
 
-    cases[cases$DistrictRes %in% 'Boke', 'DistrictRes'] = 'Boké'
+    cases.guinea[cases.guinea$DistrictRes %in% 'Boke', 'DistrictRes'] = 'Boké'
 
-    cases[cases$DistrictRes %in% 'Labe', 'DistrictRes'] = 'Labé'
+    cases.guinea[cases.guinea$DistrictRes %in% 'Labe', 'DistrictRes'] = 'Labé'
 
-    cases[cases$DistrictRes %in% 'Lelouma', 'DistrictRes'] = 'Lélouma'
+    cases.guinea[cases.guinea$DistrictRes %in% 'Lelouma', 'DistrictRes'] = 'Lélouma'
 
-    cases[cases$DistrictRes %in% 'Tougue', 'DistrictRes'] = 'Tougué'
+    cases.guinea[cases.guinea$DistrictRes %in% 'Tougue', 'DistrictRes'] = 'Tougué'
 
-    cases[cases$DistrictRes %in% 'Forecariah', 'DistrictRes'] = 'Forécariah'
+    cases.guinea[cases.guinea$DistrictRes %in% 'Forecariah', 'DistrictRes'] = 'Forécariah'
 
-    cases[cases$DistrictRes %in% 'Dubreka', 'DistrictRes'] = 'Dubréka'
+    cases.guinea[cases.guinea$DistrictRes %in% 'Dubreka', 'DistrictRes'] = 'Dubréka'
 
-# save cases data
-save(cases, file='cases.rda')
+# save cases.guinea data
+save(cases.guinea, file='cases.guinea.rda')
 
 ```
 
@@ -328,10 +342,9 @@ kable(t)  # print table
 ```
 
 \newpage
-ses by Prefecture
+cases by Prefecture
 
 - Y compris les cas confirme et probable, et suspect
-
 
 ```{r gadm_map_data}
 
@@ -452,6 +465,12 @@ GIN2.c[GIN2.c$Name == 'Conarky', 'Name'] = 'Conakry'
 
 ```
 
+```{r gadmNames, eval=FALSE}
+gin.names = unique( GIN3[, c('NAME_1', 'NAME_2', 'NAME_3') ])
+write.csv(gin.names, file='GuineaNames.csv', row.names=FALSE, fileEncoding = 'UTF-8')
+
+```
+
 ```{r theme_defaults}
 theme_bare = theme(line = element_blank(),
                    text = element_blank(),
@@ -464,7 +483,7 @@ zero.color = 'white' # add color for cells with zero counts
 background.color = 'grey99' 
 county.border.color = 'grey70' 
 state.border.color = 'grey45'
-legend.placement = c(.3, .2)  
+legend.placement = c(.5, -.05)  
 legend.font.size = 11 
 
 theme_map =  # coord_map() +
@@ -483,7 +502,7 @@ theme_map =  # coord_map() +
           strip.background = element_rect(colour=background.color, 
                                           fill=background.color),
           panel.background = element_rect(fill=background.color),
-          plot.margin = unit(c(0,0,0,0),"cm") # remove plot margins
+          plot.margin = unit(c(0,0,2,0),"cm") # remove plot margins
      )
 ```
 
@@ -497,7 +516,7 @@ Region = regions %>%  # table includes Region, DistrictRes, SCRes
 
 
 # facet by region; fill by prefecture
-cases %>% 
+cases.guinea %>% 
   merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
   filter( year(dateOnset) == 2014 ) %>%
   arrange(dateOnset) %>%
@@ -552,7 +571,7 @@ kable(p)  # print table
 
 ```
 
-```{r prefets, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee"}
+```{r prefets, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee", eval=FALSE}
 
 # add names of all prefets to case count table
 p.name = data.frame(DistrictRes = unique(regions$DistrictRes))
@@ -602,15 +621,49 @@ ggsave('PrefetMap3.png')
 
 ```
 
-```{r prefets_dot, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee"}
+```{r prefets_dot, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee", fig.height=8, fig.width=6.5}
+
+# classify values
+p$Cases1 =  cut( p[, 'Last 7 days'], 
+                      breaks = c(0, 1, 5, 10, 20, 50, Inf), 
+                      label = c('0','1-4','5-9','10-19', '20-49', '50+'),
+                      right=FALSE, include.lowest=TRUE)
+
+
+# classify values over past 3 weeks
+p$weeks23 = 
+    p[, 'Previous 8-14 days'] + p[, 'Previous 15-21 days']
+      
+p$Cases23 =  cut( p[, 'weeks23'], 
+                      breaks = c(0,1,10, 20, 50, 100, Inf), 
+                      label = c('0','1-9','10-19','20-50','50-100', '100 +'),
+                      right=FALSE, include.lowest=TRUE)
+
+# Join data with map
+p$NAME_2 = p$DistrictRes
+map.data.p = merge(GIN2, p, all.x=TRUE, 
+                 by.y='NAME_2', by.x = 'NAME_2') %>%
+  merge(GIN2.c, all.x = TRUE) %>%
+  arrange(order) 
+
+map.data.p.c = merge(GIN2.c, p, all.x=TRUE, by.y='NAME_2', by.x = 'Name') 
+
+color.brewer ="YlOrBr" # "Purples" # 
+colors = brewer.pal(6, color.brewer)  # fill colors
+
 g = ggplot( ) + theme_map +
   geom_polygon(data= map.data.p,
-               aes(x=long, y=lat, group=group), 
-               fill="grey90", color = 'grey10') + 
-  geom_point(data= map.data.p.c, aes(x=V1, y=V2, size = Cases3, alpha = Cases3), 
-             color = "red") 
+               aes(x=long, y=lat, group=group, 
+                   fill=Cases23), 
+               color="grey50", alpha=1) + 
+  geom_text(data= GIN2.c, aes(label = Name, x=V1, y=V2), size=4, hjust = 1, vjust = 2) +
+  scale_fill_manual('8-21 days prior', values = colors, drop = FALSE) +
+  geom_point(data= map.data.p.c, aes(x=V1, y=V2, size = Cases1, alpha = Cases1), 
+             color = "#980043") + # maroon ""
+  scale_size_discrete("1-7 days prior ") +
+  scale_alpha_discrete("1-7 days prior ")
 g
-ggsave('PrefetMap4.png')
+ggsave('PrefetMap4.png', width=6, height=5, units='in')
 ```
 
 # Cases by Sous Prefecture
@@ -664,7 +717,7 @@ cat("Sous-prefecture data is missing for",
     'during past 3 weeks. \n')
 ```
 
-```{r sous_prefets_3wks, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee"}
+```{r sous_prefets_3wks, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee", eval=FALSE}
 
 # add names of all prefets to case count table
 p.name = data.frame(SCRes = unique(GIN3$NAME_3))
@@ -715,7 +768,7 @@ g
 ggsave('sousPrefetMap3.png')
 ```
 
-```{r sous_prefets_total, fig.cap="Cas d'Ebola depuis le debut d'epidemie, Guinee"}
+```{r sous_prefets_total, fig.cap="Cas d'Ebola depuis le debut d'epidemie, Guinee", eval=FALSE}
 # add names of all prefets to case count table
 p.name = data.frame(SCRes = unique(GIN3$NAME_3))
 ps = merge(p.name, ps, all.x=TRUE)
@@ -873,3 +926,53 @@ O = h  %>%
 
 paste( unique(O$HCWposition), collapse = ', ') 
 ```
+
+# Indicators
+
+## Days to Isolation
+```{r isolation}
+
+# Time from onset to isolation
+data = cases %>% 
+  select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  filter(DateIsolationCurrent > DateOnset ) %>%
+  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ) ) %>%
+  filter(daysToIso < 28)
+ 
+g = ggplot(data, aes( month(DateOnset), daysToIso)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('Days to Isolation', breaks = seq(0, 28, 2)) +
+    geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
+    scale_colour_manual('Status', values = c("red", "green")) +
+    geom_boxplot( aes(group = month(DateOnset)) , outlier.shape = NA, fill = NA) 
+g
+```
+
+```{r isolation_region, fig.height=8}
+g + facet_grid( Region ~ .)
+```
+
+# Number Not Isolated
+
+```{r noIso}
+
+# Time from onset to isolation
+data = cases %>% 
+  select( DateOnset, DateIsolationCurrent, StatusReport, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  filter(DateIsolationCurrent > DateOnset ) %>%
+  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ),
+          StatusReport = factor(StatusReport, labels = c('Dead', 'Alive'))
+          ) %>%
+  filter(daysToIso < 28)
+ 
+g = ggplot(data, aes( month(DateOnset))) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    geom_bar(aes(fill = StatusReport), color = 'black', stat='bin', binwidth = 1, position = 'stack' ) +
+    scale_fill_manual('Status', values = c("red", "green")) 
+g
+
+kable( data %>% filter(StatusReport == 'Dead') %>% count(Region))
+```
+
