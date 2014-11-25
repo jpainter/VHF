@@ -1,0 +1,337 @@
+---
+title: "dashboard"
+author: "CDC/OMS"
+date: "Monday, November 24, 2014"
+output: beamer_presentation
+---
+```{r setup, echo=FALSE, results='hide', message=FALSE, warning=FALSE }
+
+library(knitr)
+opts_chunk$set( echo=FALSE, message=FALSE, comment="", 
+                warning=FALSE, results='asis')
+
+library(XLConnect, quietly=TRUE)
+library(lubridate)
+library(reshape)  # use for rename() function
+
+suppressPackageStartupMessages(library(ggplot2))
+library(scales)
+library(grid)
+library(RColorBrewer)
+
+library(tidyr) # install from github (CRAN version not working...)
+library(dplyr, quietly=TRUE) # order is important...
+
+```
+
+
+```{r read}
+# read data from excel 
+
+dir = ''
+file.name = 'WHO indicators'
+# read from file saved as excel
+excel.file = paste0(dir, file.name, '.xlsx') 
+wb = loadWorkbook(excel.file)
+
+labels =   readWorksheet(wb, 'labels')
+weeks =  readWorksheet(wb, 'weeks')
+guinea = readWorksheet(wb, 'guinea')
+SL = readWorksheet(wb, 'SL')
+liberia = readWorksheet(wb, 'liberia')
+
+```
+
+## WHO Indicators, Guinea
+
+```{r guinea, warning=FALSE}
+currentWeekColumn = ncol(guinea)
+
+guinea = guinea %>% 
+  inner_join(labels) %>% 
+  mutate(
+    change = guinea[, currentWeekColumn] - guinea[, currentWeekColumn - 1],
+    value = ifelse(type %in% 'percent', guinea[,currentWeekColumn], NA) 
+    )
+
+guinea$label = factor(guinea$label, levels = rev(guinea[guinea$order, 'label']) )
+                                            
+bars = guinea %>%
+  ggplot(aes(x=label, y=100, order = order)) +
+  ggtitle('Most Recent Week') +
+  ylab('') +
+  xlab('') +
+  geom_bar(fill = 'grey', alpha = .9, stat = 'identity') +
+  geom_bar(fill = 'blue', alpha = .9, stat = 'identity', aes(y = value) ) +
+  geom_text(color = 'white', face = 'bold',
+            aes(y = 50,label = guinea[,currentWeekColumn] ) ) +
+  coord_flip() +
+  theme(axis.text= element_text(size=12, face='bold', color = 'black'))
+
+guinea$label = factor(guinea$label, levels = guinea[guinea$order, 'label'])
+
+sparklines = guinea %>% select(-value) %>%
+  rename(var = variable) %>%
+  gather(label, week, week46:week47)   %>% 
+  mutate(value = ifelse(is.na(value), 0, value) ) %>%
+  ggplot( aes( x= variable, y = value, group = label, order = order) ) +
+  ggtitle('Change') +
+  geom_line( color = 'blue') +
+  geom_point(color = 'blue') +
+  facet_grid(label ~ .,  scales = "free") +
+  theme_bw() +
+  xlab('') + ylab('') +
+  theme( 
+        axis.text= element_blank(),
+         axis.line =         element_blank(),
+         panel.grid.major = element_blank(),
+         panel.grid.minor = element_blank(),
+         axis.ticks = element_blank(),
+         strip.background = element_blank(),
+         panel.background = element_blank(),
+         strip.background = element_blank(), 
+         strip.text = element_blank(),
+         plot.background =   element_rect(colour = NA),
+         panel.border = element_blank()) 
+
+
+# library(gridExtra)
+# grid.arrange( bars, sparklines, ncol=2)
+
+grid.newpage()
+pushViewport(viewport(layout = grid.layout(1, 10)))
+vplayout <- function(x, y) viewport(layout.pos.row = x, layout.pos.col = y)
+print(bars, vp = vplayout(1, 1:9))
+print(sparklines, vp = vplayout(1, 10))
+
+```
+
+
+## Proportion hospitalized within 3 days of onset, Guinea
+
+```{r days_iso_proportion}
+
+load('regions.rda')
+Region = regions %>%  # table includes Region, DistrictRes, SCRes
+  select(-SCRes) %>% # remove SCRes
+  unique()
+
+# Time from onset to isolation
+load('cases.guinea.rda')
+data = cases.guinea %>% 
+  select( DateOnset, DateIsolationCurrent, DateHospitalCurrentAdmit, 
+          StatusAsOfCurrentDate, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  mutate( daysToHosp = as.numeric( as.Date(DateHospitalCurrentAdmit) - as.Date(DateOnset) ) ) %>%
+  group_by( Month = month(DateOnset)) %>%
+  summarize( n = n(),
+             within3daysToHosp = sum(ifelse(daysToHosp>3, 0, 1), na.rm=T) / n 
+             )
+             
+ 
+g = ggplot(data , aes( Month, within3daysToHosp)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('% Hospitalized with 3 days of illness onset', 
+                       labels = percent, limits = c(0,1)) +
+  geom_bar(fill = 'blue', alpha = .9, stat = 'identity') +
+  geom_text(y = 50, color = 'white', aes(y = within3daysToHosp/2, label = percent(within3daysToHosp) )) 
+g
+```
+
+
+## Proportion hospitalized within 3 days of onset, Guinea
+
+### by district
+
+```{r days_iso_proportionfacet}
+
+load('regions.rda')
+Region = regions %>%  # table includes Region, DistrictRes, SCRes
+  select(-SCRes) %>% # remove SCRes
+  unique()
+
+# Time from onset to isolation
+load('cases.guinea.rda')
+data = cases.guinea %>% 
+  select( DateOnset, DateIsolationCurrent, DateHospitalCurrentAdmit, 
+          StatusAsOfCurrentDate, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  mutate( daysToHosp = as.numeric( as.Date(DateHospitalCurrentAdmit) - as.Date(DateOnset) ) ) %>%
+  group_by( DistrictRes, Month = month(DateOnset)) %>%
+  summarize( n = n(),
+             within3daysToHosp = sum(ifelse(daysToHosp>3, 0, 1), na.rm=T) / n 
+             ) %>% 
+  filter(n>20)
+             
+ 
+g = ggplot(data , aes( Month, within3daysToHosp)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('% Hospitalized with 3 days of illness onset', 
+                       labels = percent, limits = c(0,1)) +
+  geom_bar(fill = 'blue', alpha = .9, stat = 'identity') +
+  geom_text(y = 50, color = 'white', aes(y = within3daysToHosp/2, label = percent(within3daysToHosp) )) +
+  facet_grid(DistrictRes ~ .)
+g
+```
+
+## Detail of Days to Hospitalization, Guinea
+
+```{r days_iso}
+
+load('regions.rda')
+Region = regions %>%  # table includes Region, DistrictRes, SCRes
+  select(-SCRes) %>% # remove SCRes
+  unique()
+
+# Time from onset to isolation
+load('cases.guinea.rda')
+data = cases.guinea %>% 
+  select( DateOnset, DateIsolationCurrent, DateHospitalCurrentAdmit, 
+          StatusAsOfCurrentDate, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  mutate( daysToHosp = as.numeric( as.Date(DateHospitalCurrentAdmit) - as.Date(DateOnset) ) ) 
+ 
+g = ggplot(data , aes( month(DateOnset), daysToHosp)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('Days to Hospitalization', breaks = seq(0, 28, 2), limits =c(0,14)) +
+    geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
+    scale_colour_manual('Status', values = c("grey",  "green", "red")) +
+    geom_boxplot( aes(group = month(DateOnset)) , outlier.shape = NA, fill = NA)  
+# + 
+#   facet_grid( Region ~ .)
+g
+
+```
+
+## Proportion hospitalized within 3 days of onset, SL
+
+```{r days_iso_proportion_sl}
+
+load('regions.rda')
+Region = regions %>%  # table includes Region, DistrictRes, SCRes
+  select(-SCRes) %>% # remove SCRes
+  unique()
+
+# Time from onset to isolation
+load('cases.sl.rda')
+data = cases.sl %>% 
+  select( DateOnset, DateIsolationCurrent, DateHospitalCurrentAdmit, 
+          StatusAsOfCurrentDate, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  mutate( daysToHosp = as.numeric( as.Date(DateHospitalCurrentAdmit) - as.Date(DateOnset) ) ) %>%
+  group_by( Month = month(DateOnset)) %>%
+  summarize( n = n(),
+             within3daysToHosp = sum(ifelse(daysToHosp>3, 0, 1), na.rm=T) / n 
+             )
+             
+ 
+g = ggplot(data , aes( Month, within3daysToHosp)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('% Hospitalized with 3 days of illness onset', 
+                       labels = percent, limits = c(0,1)) +
+  geom_bar(fill = 'blue', alpha = .9, stat = 'identity') +
+  geom_text(y = 50, color = 'white', aes(y = within3daysToHosp/2, label = percent(within3daysToHosp) )) 
+g
+```
+
+
+## Detail of Days to Hospitalization, SL
+
+```{r days_iso_sl}
+
+load('regions.rda')
+Region = regions %>%  # table includes Region, DistrictRes, SCRes
+  select(-SCRes) %>% # remove SCRes
+  unique()
+
+# Time from onset to isolation
+load('cases.sl.rda')
+data = cases.sl %>% 
+  select( DateOnset, DateIsolationCurrent, DateHospitalCurrentAdmit, 
+          StatusAsOfCurrentDate, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  mutate( daysToHosp = as.numeric( as.Date(DateHospitalCurrentAdmit) - as.Date(DateOnset) ) ) 
+ 
+g = ggplot(data , aes( month(DateOnset), daysToHosp)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('Days to Hospitalization', breaks = seq(0, 28, 2), limits =c(0,14)) +
+    geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
+    scale_colour_manual('Status', values = c("grey",  "green", "red")) +
+    geom_boxplot( aes(group = month(DateOnset)) , outlier.shape = NA, fill = NA)  
+# + 
+#   facet_grid( Region ~ .)
+g
+
+```
+
+
+## Cases that were Contacts, Sep-Oct, Conakry
+
+```{r cases_found_among_contact, fig.height=4, fig.width=10}
+
+load('cky.cases.rda')
+
+sourceCases = cases.guinea %>% 
+  filter(ID %in% cky.cases$SourceCaseID) %>%
+  rename(SourceCaseID = ID, sourceSCRes = SCRes) %>%
+  select(SourceCaseID, sourceSCRes) 
+  
+# percent cases that were contacts
+data = cky.cases %>% 
+  left_join(sourceCases, by= c('SourceCaseID'='SourceCaseID')) %>%
+  mutate( 
+          Month = month(dateOnset),
+          SCRes = toupper(SCRes)
+          ) %>% 
+  group_by( Month ) %>%
+  summarize( n = n(),
+             contact = sum(WasContact, na.rm=T),
+             caseContacts = contact/n
+             ) 
+
+g = ggplot(data , aes( Month, caseContacts)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('% Hospitalized with 3 days of illness onset', 
+                       labels = percent, limits = c(0,1)) +
+  geom_bar(fill = 'blue', alpha = .9, stat = 'identity') +
+  geom_text( color = 'white', aes(y = caseContacts/2, label = percent(caseContacts) )) 
+g
+
+```
+
+
+## Cases that were Contacts, Sep-Oct, Conakry
+
+### by sub-district
+
+```{r epicurve_cases_were_contacts, fig.height=6, fig.width=10}
+
+load('cky.cases.rda')
+
+sourceCases = cases.guinea %>% 
+  filter(ID %in% cky.cases$SourceCaseID) %>%
+  rename(SourceCaseID = ID, sourceSCRes = SCRes) %>%
+  select(SourceCaseID, sourceSCRes) 
+  
+# percent cases that were contacts
+data = cky.cases %>% 
+  left_join(sourceCases, by= c('SourceCaseID'='SourceCaseID')) %>%
+  mutate( 
+          Month = month(dateOnset),
+          SCRes = toupper(SCRes)
+          ) %>% 
+  group_by( Month, SCRes ) %>%
+  summarize( n = n(),
+             contact = sum(WasContact, na.rm=T),
+             caseContacts = contact/n
+             ) 
+
+g = ggplot(data , aes( Month, caseContacts)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('% Hospitalized with 3 days of illness onset', 
+                       labels = percent, limits = c(0,1)) +
+  geom_bar(fill = 'blue', alpha = .9, stat = 'identity') +
+  geom_text( color = 'white', aes(y = caseContacts/2, label = percent(caseContacts) )) +
+  facet_grid(SCRes ~ .)
+g
+```
