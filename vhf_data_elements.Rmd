@@ -16,7 +16,7 @@ Sys.setenv(TZ='GMT+0')
 
 library(knitr)
 opts_chunk$set( echo=FALSE, message=FALSE, comment="", 
-                warnings=FALSE, results='asis',
+                warning=FALSE, results='asis',
                 cache = FALSE)
 library(mi)
 library(Hmisc)
@@ -38,7 +38,7 @@ library(rgeos)
 
 ## VHF Data, Guinea: **Cases**
 
-```{r read_cas_G}
+```{r read_cas_G, warning=FALSE}
 
 # In order for this import to work, must do 2 things first:
 # 1. Make sure Region settings (control panel) are set to English(UK)
@@ -47,22 +47,59 @@ library(rgeos)
 
 dir = 'fieldData/'
 
-file.name = "guinea_cases_10_Nov"  
+file.name = "case_guinea_sl"  
+# excel.file = paste0(dir, file.name, '.xlsx') 
+# wb = loadWorkbook(excel.file)
+# case_data = readWorksheet(wb, file.name )
 
-excel.file = paste0(dir, file.name, '.xlsx') 
-wb = loadWorkbook(excel.file)
-case_data.guinea = readWorksheet(wb, file.name, )
 
-# csv.file = paste0(dir, file.name, '.csv')
-# case_data = read.csv(csv.file, header=TRUE)
+# sas import...
+# export to csv; open in excel and re-export as csv!!!
+# options(stringsAsFactors=FALSE)
+# library(data.table)
+# file.name = "case_guinea_sl_xl" 
+file = paste0(dir, file.name, '.csv') 
+# case_data = fread( file , sep =',')
 
-save(case_data.guinea, file='case_data.guinea.rda')
+options(stringsAsFactors=FALSE)
+# library(sas7bdat)
+# file.name = "case_guinea_sl.sas7bdat" 
+# file = paste0(dir, file.name) 
+# stringsAsFactors = FALSE
+# case_data = read.sas7bdat(file, debug=FALSE)
+
+# Maenner
+x = readLines(file, skipNul=TRUE,encoding="UTF-8", n=-1L )
+case_data = read.csv(textConnection(x), header = TRUE, stringsAsFactors = FALSE)
+
+# convert character data to dates
+case_data = case_data %>% 
+  mutate(
+          DateIsolationCurrent = dmy(DateIsolationCurrent) ,
+          DateHospitalCurrentAdmit = dmy(DateHospitalCurrentAdmit),
+          DateReport = dmy(DateReport), 
+          DateOnset = dmy(DateOnset)
+          )
+
+# set timezone attributes
+attr(case_data$DateOnset, "tzone") <- "UTC"
+attr(case_data$DateReport, "tzone") <- "UTC"
+attr(case_data$DateHospitalCurrentAdmit, "tzone") <- "UTC"
+attr(case_data$DateIsolationCurrent, "tzone") <- "UTC"
+
+
+# Create separate country datasets
+case_data.guinea = case_data %>% filter(Country %in% 'Guinea') %>% as.data.frame()
+case_data.sl = case_data %>% filter(Country %in% 'Sierra Leone') %>% as.data.frame()
+
+save(case_data.guinea , case_data.sl, file='case_data.rda')
+
 ```
 
 ```{r Define_case_data_G}
-load('case_data.guinea.rda')
+load('case_data.rda')
 
-epiCaseDef = data.frame(EpiCaseDef = c(0,1,2,3,4),
+EpiCaseDef = data.frame(EpiCaseDef = c(0,1,2,3,4),
                      EpiCaseDef.label = c('Non-Cas','Confirme',
                                           'Probable','Suspect', 'Exclude'))
 
@@ -72,14 +109,12 @@ date.ifelse <- function(cond, yes, no){ class.y <- class(yes)
                                   X <- ifelse(cond,yes,no)
                                   class(X) <-class.y; return(X)}
 
-
-last.report.date = max(case_data.guinea$DateReport, na.rm=T) # last day with report
-current.week = week(last.report.date)  
+last.report.date = max(case_data.guinea$DateReport, na.rm=T)  # last day with report
+current.week = week( last.report.date)
 
 cases.guinea = case_data.guinea %>% 
   select( ID, StatusAsOfCurrentDate, 
           EpiCaseDef , StatusReport, FinalStatus,
-          ThisCaseIsAlsoContact, TotalContactsListed, 
           DateReport, DateOnset,
           DateHospitalCurrentAdmit, DateIsolationCurrent,
           Age, AgeUnit, Gender, DateDeath, 
@@ -91,12 +126,13 @@ cases.guinea = case_data.guinea %>%
           ) %>% 
   filter(!EpiCaseDef==4) %>% # drop 'excluded'
   mutate( EpiCaseDef = as.integer(EpiCaseDef)) %>%
-  inner_join(epiCaseDef) %>%  
-  mutate( 
-          dateOnset = 
-            date.ifelse( is.na(DateOnset), DateReport, DateOnset )
-            , # use onset date if available; DateReport otherwise
-          week = week(dateOnset)  ,
+  inner_join(EpiCaseDef) %>%  
+  mutate(
+#           dateOnset = DateOnset, 
+          dateOnset = pmin( DateReport, DateOnset , na.rm = T),
+          # use onset date if available; DateReport otherwise
+          
+          week = week( dateOnset ) ,
           # calculate periods based on week function, starting with day before current date
           period_wk = ifelse( week == current.week, "Week", 
                           ifelse( week == ( current.week - 1 ), "Week_1",
@@ -109,14 +145,14 @@ cases.guinea = case_data.guinea %>%
           
           # calculate periods based on 7 day intervals, 
           # starting with day before current date
-          period = date.ifelse( dateOnset %within% 
+          period = ifelse( dateOnset %within% 
                              interval(last.report.date-edays(6),
                                       last.report.date
                                       ), "Last 7 days", 
-                    date.ifelse(dateOnset %within% 
+                    ifelse(dateOnset %within% 
                            interval(last.report.date-edays(13), 
                                     last.report.date-edays(7)), "Previous 8-14 days",
-                    date.ifelse(dateOnset %within% 
+                    ifelse(dateOnset %within% 
                              interval(last.report.date-edays(20), 
                                       last.report.date-edays(14)), "Previous 15-21 days", 
                            "Previous"))),
@@ -133,6 +169,32 @@ cases.guinea = case_data.guinea %>%
     filter( Status %in% c('Confirme','Probable', 'Suspect'))
 
 save(cases.guinea, file = 'cases.guinea.rda')
+```
+
+```{r Clean_Locations}
+  cases.guinea[cases.guinea$DistrictRes %in% 'Gueckedou', 'DistrictRes'] = 'Guéckédou'
+  
+  cases.guinea[cases.guinea$DistrictRes %in% "N'Zerekore", 'DistrictRes'] = 'Nzérékoré'
+  
+  cases.guinea[cases.guinea$DistrictRes %in% 'Telimélé', 'DistrictRes'] = 'Télimélé'
+
+    cases.guinea[cases.guinea$DistrictRes %in% 'Kerouane', 'DistrictRes'] = 'Kérouané'
+
+    cases.guinea[cases.guinea$DistrictRes %in% 'Boke', 'DistrictRes'] = 'Boké'
+
+    cases.guinea[cases.guinea$DistrictRes %in% 'Labe', 'DistrictRes'] = 'Labé'
+
+    cases.guinea[cases.guinea$DistrictRes %in% 'Lelouma', 'DistrictRes'] = 'Lélouma'
+
+    cases.guinea[cases.guinea$DistrictRes %in% 'Tougue', 'DistrictRes'] = 'Tougué'
+
+    cases.guinea[cases.guinea$DistrictRes %in% 'Forecariah', 'DistrictRes'] = 'Forécariah'
+
+    cases.guinea[cases.guinea$DistrictRes %in% 'Dubreka', 'DistrictRes'] = 'Dubréka'
+
+# save cases.guinea data
+save(cases.guinea, file='cases.guinea.rda')
+
 ```
 
 ```{r Guinea_missing, fig.height=5}
@@ -176,16 +238,18 @@ Available data (blue) for select variable among confirmed, suspect, and probable
 
 dir = 'fieldData/'
 
-file.name = "VHF_CIF1"
-cif1 = read.csv( paste0(dir, file.name, '.csv'), header = TRUE, stringsAsFactors = FALSE)
+# file.name = "VHF_CIF1"
+# cif1 = read.csv( paste0(dir, file.name, '.csv'), header = TRUE, stringsAsFactors = FALSE)
+# 
+# file.name = "VHF_CIF2"
+# cif2 = read.csv( paste0(dir, file.name, '.csv'), header = TRUE, stringsAsFactors = FALSE)
+# 
+# case_data.sl = inner_join(cif1, cif2) %>%
+#   mutate( DateReport = dmy(DateReport),
+#           DateOnset = dmy(DateOnset) ,
+#           DateIsolationCurrent = dmy(DateIsolationCurrent))
 
-file.name = "VHF_CIF2"
-cif2 = read.csv( paste0(dir, file.name, '.csv'), header = TRUE, stringsAsFactors = FALSE)
-
-case_data.sl = inner_join(cif1, cif2) %>%
-  mutate( DateReport = dmy(DateReport),
-          DateOnset = dmy(DateOnset) ,
-          DateIsolationCurrent = dmy(DateIsolationCurrent))
+case_data.sl = case_data %>% filter(Country %in% 'Sierra Leone')  %>% as.data.frame()
 
 save(case_data.sl, file='case_data.sl.rda')
 ```
@@ -193,7 +257,7 @@ save(case_data.sl, file='case_data.sl.rda')
 ```{r Define_case_data_SL}
 load('case_data.sl.rda')
 
-epiCaseDef = data.frame(EpiCaseDef = c(0,1,2,3,4),
+EpiCaseDef = data.frame(EpiCaseDef = c(0,1,2,3,4),
                      EpiCaseDef.label = c('Non-Case','Confirmed',
                                           'Probable','Suspect', 'Excluded'))
 
@@ -203,12 +267,12 @@ date.ifelse <- function(cond, yes, no){ class.y <- class(yes)
                                   X <- ifelse(cond,yes,no)
                                   class(X) <-class.y; return(X)}
 
-last.report.date = max(case_data.sl$DateReport, na.rm=T) # last day with report
+last.report.date = max(case_data.sl$DateReport, na.rm=T) %>% dmy() # last day with report
 current.week = week(last.report.date)  
 
 cases.sl = case_data.sl %>% 
   select( ID, StatusAsOfCurrentDate, 
-          EPICaseDef , StatusReport, FinalStatus,
+          EpiCaseDef , StatusReport, FinalStatus,
           DateReport, DateOnset,
           DateHospitalCurrentAdmit, DateIsolationCurrent,
           Age, AgeUnit, Gender, DateDeath, 
@@ -218,13 +282,14 @@ cases.sl = case_data.sl %>%
           Contact, ContactName1, ContactRelation1, ContactDateStart1, ContactDateEnd1,
           ContactName2, ContactRelation2,  ContactDateStart2, ContactDateEnd2
           ) %>% 
-  filter(!EPICaseDef==4) %>% # drop 'excluded'
-  mutate( EPICaseDef = as.integer(EPICaseDef)) %>%
-  inner_join(epiCaseDef, by = c('EPICaseDef' = 'EpiCaseDef')) %>%  
-  mutate( 
-          dateOnset = 
-            date.ifelse( is.na(DateOnset), DateReport, DateOnset )
-            , # use onset date if available; DateReport otherwise
+  filter(!EpiCaseDef==4) %>% # drop 'excluded'
+#   mutate( EpiCaseDef = as.integer(EpiCaseDef)) %>%
+  inner_join(EpiCaseDef, by = c('EpiCaseDef' = 'EpiCaseDef')) %>%  
+  mutate( DateIsolationCurrent = dmy(DateIsolationCurrent) ,
+          DateHospitalCurrentAdmit = dmy(DateHospitalCurrentAdmit),
+          DateReport = dmy(DateReport),
+          DateOnset = dmy(DateOnset),
+          dateOnset = date.ifelse( is.na(DateOnset), DateReport, DateOnset ), # use onset date if available; DateReport otherwise
           week = week(dateOnset)  ,
           # calculate periods based on week function, starting with day before current date
           period_wk = ifelse( week == current.week, "Week", 
@@ -301,7 +366,7 @@ save(cases.sl, file='cases.sl.rda')
 ```{r SL_missing, fig.height=5}
 load('cases.sl.rda')
 
-data = cases.sl %>% select(EPICaseDef,  
+data = cases.sl %>% select(EpiCaseDef,  
                         DateOnset, DateIsolationCurrent, 
                         StatusAsOfCurrentDate, 
                         Age , Gender, 
@@ -519,8 +584,8 @@ t = cky.cases %>%
   rename(Number_2ndary_Cases = n)
 
 # kable(t)
-
-total.secondary = sum(t$Number_2ndary_Cases, na.rm=T)
+total.cases = sum(t$Number_2ndary_Cases, na.rm=T)
+total.secondary = sum(t[-1, "Number_2ndary_Cases"], na.rm=T)
 number.sources = sum(!is.na(t$SourceCaseID))
 
 t %>% filter(!is.na(t$SourceCaseID)) %>%
@@ -528,14 +593,46 @@ ggplot(aes(x=Number_2ndary_Cases )) +
   geom_bar() +
   scale_x_continuous('Number of secondary cases', 
                      breaks = seq(1, max(t$Number_2ndary_Cases), 2)
-                     ) 
-#   geom_annotate(x=7, y=10, type='text', text=paste('))
+                     ) +
+  annotate('text', x=7, y=10, label=paste('N = ', total.cases, 
+                                          '\nSecondary cases = ', total.secondary,
+                                          '\nSource cases = ', number.sources)) +
+  annotate('text', x=12, y=2, label = 'Source \nA', color = 'red') +
+  annotate('text', x=15, y=2, label = 'Source \nB', color = 'red')
+
 ```
 
-- There were `r x[1,2]` (`r percent(x[1,2] / nrow(cky.contacts) )`) cases among `r nrow(cky.contacts) ` contacts.
+- There were `r x[1,2]` (`r percent(x[1,2] / nrow(cky.contacts) )`) cases among `r nrow(cky.contacts) ` contacts. 
 - One case resulted in 15 cases among `r cky.contacts %>% filter(SourceCaseID %in% 'GUI-CKY-14-1365') %>% count()` contacts.  
 - One case resulted in 12 cases among `r cky.contacts %>% filter(SourceCaseID %in% 'GUI-CKY-14-0988') %>% count()` contacts.
 
+## Cases from Source Case A
+
+```{r sourceA}
+
+cases %>% filter(ID %in% 'GUI-CKY-14-0988') %>% 
+  select(ID , Surname, OtherNames, Age, Gender, dateOnset, DistrictRes, SCRes, VillageRes) %>%  kable()
+
+cky.contacts %>% filter(SourceCaseID %in% 'GUI-CKY-14-0988') %>% 
+  select(ID, Surname, OtherNames, Gender, Age, BecameCase, onset, caseID) %>% 
+  arrange(-BecameCase, Age) %>%
+  kable()
+
+```
+
+## Cases from Source Case B
+
+```{r sourceB}
+
+cases %>% filter(ID %in% 'GUI-CKY-14-1365') %>% 
+  select(Surname, OtherNames, Age, Gender, dateOnset, DistrictRes, SCRes, VillageRes) %>%  kable()
+
+cky.contacts %>% filter(SourceCaseID %in% 'GUI-CKY-14-1365') %>% 
+  select(ID, Surname, OtherNames, Gender, Age, BecameCase, onset) %>% 
+  arrange(-BecameCase, Age) %>%
+  kable()
+
+```
 
 # Other Indicators
 
@@ -562,7 +659,7 @@ g = ggplot(data, aes( month(DateOnset), daysToIso)) +
     scale_x_continuous('Month', breaks = c(1:12)) +
     scale_y_continuous('Days to Isolation', breaks = seq(0, 28, 2)) +
     geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
-    scale_colour_manual('Status', values = c("red", "green")) +
+    scale_colour_manual('Status', values = c("grey",  "green", "red")) +
     geom_boxplot( aes(group = month(DateOnset)) , outlier.shape = NA, fill = NA)  
 # + 
 #   facet_grid( Region ~ .)
@@ -592,7 +689,7 @@ g = ggplot(data, aes( month(DateOnset), daysToIso)) +
     scale_x_continuous('Month', breaks = c(1:12)) +
     scale_y_continuous('Days to Isolation', breaks = seq(0, 28, 2)) +
     geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
-    scale_colour_manual('Status', values = c("red", "green")) +
+    scale_colour_manual('Status', values = c("grey",  "green", "red")) +
     geom_boxplot( aes(group = month(DateOnset)) , outlier.shape = NA, fill = NA)  +
   facet_grid( Region ~ .)
 g

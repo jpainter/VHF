@@ -21,10 +21,10 @@ library(dplyr)
 library(knitr)
 
 opts_chunk$set( echo=FALSE, message=FALSE, comment="", warnings=FALSE, results='asis',
-                cache=TRUE)
+                cache=FALSE)
 ```
 
-```{r read}
+```{r read, results='hide'}
 
 # In order for this import to work, must do 2 things first:
 # 1. Make sure Region settings (control panel) are set to English(UK)
@@ -52,6 +52,9 @@ excel.file = paste0(dir, file.name, '.xlsx')
 wb = loadWorkbook(excel.file)
 contact_data.vhf = readWorksheet(wb, file.name)
 
+nrow(contact_data.vhf)
+max(contact_data.vhf$DateLastContact, na.rm=T)
+
 # Contacts ('online')
 contact_data.online = contact_data.vhf %>%
   select(GlobalRecordId, ID, ThisContactIsAlsoCase, 
@@ -59,6 +62,7 @@ contact_data.online = contact_data.vhf %>%
          Age, HeadHousehold, Village, District, SubCounty, 
          SourceCaseID, SourceCase, DateLastContact, 
          HCW, TotalSourceCases, DateOfLastFollowUp, FinalOutcome)
+
 nrow(contact_data.online)
 max(contact_data.online$DateLastContact, na.rm=T)
 
@@ -72,6 +76,7 @@ contact_data.offline = readWorksheet(wb, 'Contacts-OMS-offline') %>%
          Age, HeadHousehold, Village, District, SubCounty, 
          SourceCaseID, SourceCase, DateLastContact, 
          HCW, TotalSourceCases, DateOfLastFollowUp, FinalOutcome)
+
 nrow(contact_data.offline)
 max(contact_data.offline$DateLastContact, na.rm=T)
 
@@ -86,7 +91,7 @@ new.online = anti_join(contact_data.offline, contact_data.online, by=c('ID' = 'I
 nrow(new.online)
 # 0 records in offline file not in online file
 
-### use online!!!
+### use online!!! (same as vhf)
 contacts = contact_data.vhf 
 
 # set report date as the most recent DateReport
@@ -169,42 +174,55 @@ cases = case_data %>%
           ) %>%
     filter( EpiCaseDef.label %in% c('Confirme','Probable', 'Suspect'))
 
-# ensure that character encoding of imported data is 'UTF-8'.  Default on some windows machines is 'latin1'.  This will cause conflict when trying to join with the Region data.table (whose names are in UTF-8)
-# cases$DistrictRes = iconv(cases$DistrictRes, 'latin1', 'UTF-8')
-# or 
-# Encoding(cases$VillageRes) = 'UTF-8'
-# Encoding(cases$SCRes) = 'UTF-8'
 
+
+# clean districtRes
+
+  cases[cases$DistrictRes %in% 'Gueckedou', 'DistrictRes'] = 'Guéckédou'
+  
+  cases[cases$DistrictRes %in% "N'Zerekore", 'DistrictRes'] = 'Nzérékoré'
+  
+  cases[cases$DistrictRes %in% 'Telimélé', 'DistrictRes'] = 'Télimélé'
+
+  cases[cases$DistrictRes %in% 'Kerouane', 'DistrictRes'] = 'Kérouané'
+
+  cases[cases$DistrictRes %in% 'Boke', 'DistrictRes'] = 'Boké'
+
+  cases[cases$DistrictRes %in% 'Labe', 'DistrictRes'] = 'Labé'
+
+  cases[cases$DistrictRes %in% 'Lelouma', 'DistrictRes'] = 'Lélouma'
+
+  cases[cases$DistrictRes %in% 'Tougue', 'DistrictRes'] = 'Tougué'
+
+  cases[cases$DistrictRes %in% 'Forecariah', 'DistrictRes'] = 'Forécariah'
+
+  cases[cases$DistrictRes %in% 'Dubreka', 'DistrictRes'] = 'Dubréka'
+
+# clean SCRes names with fuzz matching (agrepl)
+cases$SCRes = toupper(cases$SCRes)
+
+SCRes = 'RATOMA'
+cases[ agrepl(SCRes, cases$SCRes, max =1), 'SCRes' ] = SCRes
+SCRes = 'MATOTO'
+cases[ agrepl(SCRes, cases$SCRes, max =1), 'SCRes' ] = SCRes
+SCRes = 'MATAM'
+cases[ agrepl(SCRes, cases$SCRes, max =1), 'SCRes' ] = SCRes
+SCRes = 'KALOUM'
+cases[ agrepl(SCRes, cases$SCRes, max =1), 'SCRes' ] = SCRes
+SCRes = 'DIXINN'
+cases[ agrepl(SCRes, cases$SCRes, max =1), 'SCRes' ] = SCRes
+
+
+save(cases, file = 'cases.rda')
 ```
 
-```{r ckyCases}
-load("regions.rda")
+```{r contacts_clean}
+
 
 substrRight <- function(x, n){
   substr(x, nchar(x)-n+1, nchar(x))
 }
 
-# focus on cases and contact in September (start by including those since mid August)
-cky.cases = cases %>% 
-  select( ID, Surname, OtherNames, dateOnset, DistrictRes, SCRes, VillageRes, Age) %>%
-  filter(dateOnset>=ymd("2014-SEP-1") &
-                               DistrictRes %in% "CONAKRY") %>% 
-  arrange(dateOnset)
-
-# group by districts
-cky.cases %>%
-  group_by( SCRes) %>%
-  summarize( freq = n() )
-
-# find cases with missing sc
-cat('Table of Conakry cases with missing SCRes (sub-county)')
-kable( 
-  cky.cases %>% filter(is.na(SCRes)) 
-  )
-
-```
-
-```{r contacts_clean}
 cases.brief = case_data %>% select(ID, EpiCaseDef, Surname, OtherNames, Age, Gender, 
                                    HeadHouse, VillageRes, SCRes, DistrictRes) %>%
   mutate( SCRes = toupper(SCRes)) %>%
@@ -214,7 +232,7 @@ cases.brief = case_data %>% select(ID, EpiCaseDef, Surname, OtherNames, Age, Gen
          caseGender = Gender)
 
 contacts= contacts %>% 
-  inner_join(cases.brief, by = c('SourceCaseID' = 'ID')) %>% 
+#   inner_join(cases.brief, by = c('SourceCaseID' = 'ID')) %>% 
   arrange(DateLastContact) %>%
   mutate( idnum = substrRight(ID, 4),
           period = as.Date(floor_date(DateLastContact, "week")),
@@ -223,23 +241,61 @@ contacts= contacts %>%
 
 
 # clean district names with fuzz matching (agrepl)
-district = 'RATOMA'
-contacts[ agrepl(district, contacts$SubCounty, max =1), 'SubCounty' ] = district
-district = 'MATOTO'
-contacts[ agrepl(district, contacts$SubCounty, max =1), 'SubCounty' ] = district
-district = 'MATAM'
-contacts[ agrepl(district, contacts$SubCounty, max =1), 'SubCounty' ] = district
-district = 'KALOUM'
-contacts[ agrepl(district, contacts$SubCounty, max =1), 'SubCounty' ] = district
-district = 'DIXINN'
-contacts[ agrepl(district, contacts$SubCounty, max =1), 'SubCounty' ] = district
+contacts$District = toupper(contacts$District)
+district = 'CONAKRY'
+contacts[ agrepl(district, contacts$SubCounty, max =1), 'District' ] = district
+contacts[contacts$District %in% 'CONKRY', 'District'] = 'CONAKRY'
+
+# clean SubCounty names with fuzz matching (agrepl)
+contacts$SubCounty = toupper(contacts$SubCounty)
+
+SubCounty = 'RATOMA'
+contacts[ agrepl(SubCounty, contacts$SubCounty, max =1), 'SubCounty' ] = SubCounty
+SubCounty = 'MATOTO'
+contacts[ agrepl(SubCounty, contacts$SubCounty, max =1), 'SubCounty' ] = SubCounty
+SubCounty = 'MATAM'
+contacts[ agrepl(SubCounty, contacts$SubCounty, max =1), 'SubCounty' ] = SubCounty
+SubCounty = 'KALOUM'
+contacts[ agrepl(SubCounty, contacts$SubCounty, max =1), 'SubCounty' ] = SubCounty
+SubCounty = 'DIXINN'
+contacts[ agrepl(SubCounty, contacts$SubCounty, max =1), 'SubCounty' ] = SubCounty
 
 # special cases
 exceptions = c('COLEAH', 'CONAKRY', 'DR FANTA BINTOU', 'M', 'SANGOYA', 'SONFONIA GARE')
 contacts[ contacts$SubCounty %in% exceptions, 'SubCounty' ] = NA
 
+save(contacts, file = 'contacts.rda')
+
 ```
 
+
+## Sub County Data
+
+```{r ckyCases}
+load("regions.rda")
+
+# focus on cases and contact in September (start by including those since mid August)
+cky.cases = cases %>% 
+  select( ID, Surname, OtherNames, dateOnset, DistrictRes, SCRes, VillageRes, Age) %>%
+  filter(dateOnset>=ymd("2014-AUG-1") &
+                               toupper(DistrictRes) %in% "CONAKRY") %>% 
+  arrange(dateOnset)
+
+# group by districts
+kable(
+  cky.cases %>%
+  group_by( SCRes) %>%
+  summarize( freq = n() ),
+  caption = 'Number of Cases by Sub-County'
+  )
+
+# find cases with missing sc
+kable( 
+  cky.cases %>% filter(is.na(SCRes)) ,
+  caption = 'Conakry cases with missing SCRes'
+  )
+
+```
 \newpage
 
 ```{r epicurve_cases_table, fig.height=7, fig.width=9}
@@ -252,12 +308,6 @@ NOTE: For `r sum(is.na(cky.cases$SCRes))` cases, DistrictRes is missing
 ```{r epicurve_cases, fig.height=7, fig.width=9}
 
 cky.cases %>%
-#   filter(
-#              agrepl(c('hafia'), VillageRes, ignore.case=TRUE ) |
-#               agrepl(c('cobaya'), VillageRes, ignore.case=TRUE ) |
-#                agrepl(c('simanbossia'), VillageRes, ignore.case=TRUE ) |
-#                agrepl(c('matoto'), VillageRes, ignore.case=TRUE )
-#          ) %>%
   mutate( idnum = substrRight(ID, 4),
           period = as.Date(floor_date(dateOnset, "week")),
           SCRes = toupper(SCRes),
@@ -268,37 +318,42 @@ cky.cases %>%
           midpoint = (cumsum(freq) - 0.5 * freq)) %>%
   ## plot
   ggplot( aes(x = period , y = freq) ) +
-  geom_bar( stat = 'identity', aes(color = SCRes), fill='white') +
+  geom_bar( stat = 'identity', aes(fill = SCRes), color='white') +
   geom_text( aes(y = midpoint, ymax=midpoint, label = idnum), size = 2, hjust=1) +
   scale_x_date('Week beginning', labels = date_format("%b-%d"),
                breaks = date_breaks("week")) +
   ylab('Cases') + 
   theme(axis.text.x = element_text(angle = 90, hjust = 2),
-       legend.position = 'top' ) +
+        legend.position = 'top' ) +
   facet_grid(SCRes ~ .)
 
 ```
 
+
 ```{r epicurve_contacts, fig.height=7, fig.width=9}
 
-# create table of cases with only a few variables to join with contacts. rename vars to prevent duplicate names
-
 cky.contacts= contacts %>% 
-  filter(DateLastContact>=ymd("2014-SEP-1") &
-                               tolower(District) == "conakry") 
+  mutate(
+    period = as.Date(floor_date(DateLastContact, "week"))
+    ) %>%
+  filter(DateLastContact>=ymd("2014-JUL-1") &
+                               toupper(District) == "CONAKRY") 
+ 
 
 # group by districts
-cky.contacts %>%
-  group_by( SCRes) %>%
-  summarize( freq = n() )
+# cky.contacts %>%
+#   group_by( SubCounty) %>%
+#   summarize( freq = n() )
 
 # group by period
-cky.contacts %>%
-  group_by( period) %>%
-  summarize( freq = n() )
+# cky.contacts %>%
+#   group_by( period) %>%
+#   summarize( freq = n() )
 
 # 'Fix' data for contact  C-4223, with DateLastContact == 2014-11-30.  
 # source case, gui-cky-14-3833 was not a case (discharged from donka after 3 neg tests) 
+
+
 ## Are there other contacts to non-cases?
 # _ how many conatacts are missing source case id? none.  
 # sum(is.na(cky.contacts$SourceCaseID))
@@ -309,35 +364,40 @@ cky.contacts %>%
 #   cky.contacts  %>% count(EpiCaseDef)
 #   )
 
-# filter out contacts of non cases
-cky.contacts = cky.contacts %>% 
-  filter( EpiCaseDef %in% c(1:3))
+# could filter out sourcecases that were not a case (could below was not working)
+# cky.contacts = cky.contacts %>% 
+#   left_join(cases, by = ('SourceCaseID', 'ID')) %>%
+#   filter( EpiCaseDef %in% c(1:3))
 
 # cat('filtering out those whose source case were determined to be "non-case", there are',
 #    nrow(cky.contacts) , 'contacts to', length(unique(cky.contacts$SourceCaseID)), 'cases.' )
 
 cky.contacts %>% 
+    mutate( idnum = ID,
+          period = as.Date(floor_date(DateLastContact, "week")),
+          SubCounty = toupper(SubCounty)) %>% 
   group_by( period, SubCounty, idnum ) %>%
   summarize( freq = n() ) %>%  
   mutate( cumsum = cumsum(freq),
           midpoint = (cumsum(freq) - 0.5 * freq)) %>%
   ## plot
   ggplot( aes(x = period , y = freq) ) +
-  geom_bar( stat = 'identity',  aes(color = SubCounty, fill=SubCounty)) +
+  geom_bar( stat = 'identity',  aes(color = SubCounty), fill='white') +
 #   geom_text( aes(y = midpoint, ymax=midpoint, label = idnum), size = 2, hjust=1) +
-  scale_x_date('Week beginning', labels = date_format("%b-%d"),
+  scale_x_date('Date of Last Contact', labels = date_format("%b-%d"),
                breaks = date_breaks("week")) +
-  ylab('Ccontacts') + 
+  ylab('Contacts') + 
   theme(axis.text.x = element_text(angle = 90, hjust = 2),
        legend.position = 'top' ) +
   facet_grid(SubCounty ~ .)
 
+
 ```
 
-```{r location_table}
+```{r location_table, eval=FALSE}
 
 kable(
-  with(cky.contacts, table(SubCounty, DistrictRes))
+  with(cky.contacts, table(SubCounty, District))
   )
 
 cat('NOTE: For', sum(is.na(cky.contacts$SubCounty)) ,'contacts, SubCounty is missing')
@@ -358,7 +418,7 @@ cat('Of the', nrow(cky.contacts), 'contacts in Conakry',
 
 ```
 
-```{r source_cases, fig.height=7, fig.width=9}
+```{r source_cases, fig.height=7, fig.width=9, eval=FALSE}
 cky.contacts %>% 
   group_by( period, SCRes, SourceCaseID ) %>%
   summarize( freq = n() ,
@@ -381,7 +441,7 @@ cky.contacts %>%
 
 \newpage
 
-```{r case_list}
+```{r case_list, eval=FALSE}
 
 cat('there are', nrow(cky.cases), 'cases after Sep 1 and ', 
     nrow(cky.contacts), ' contacts\n' )
@@ -404,23 +464,33 @@ kable(cky.cases[,case.cols])
 # A) match surname to surname and othernames to othernames.  Find any where both are true
 # match surname-surname
 
-# expand list of contacts to begining of August
-cky.contacts = contacts %>%
-  filter(DateLastContact>=ymd("2014-AUG-1") &
-                               tolower(District) == "conakry") 
+load('contacts.rda')
+load('cases.rda')
+
+# list of contacts to begining of JULY
+# contacts = contacts %>%
+#   filter(DateLastContact>=ymd("2014-JUL-1") ) 
+# 
+# # list of cases in Conakry from August JULY
+cky.cases = cases %>%
+  filter(
+#     dateOnset>=ymd("2014-JUL-1")  ) &
+                               tolower(DistrictRes) == "conakry") 
+
 
 contactMatch = function(.fun=grepl, ...){
+  
   # match surname-surname
-  sur.sur = sapply(cky.cases$Surname, .fun, cky.contacts$Surname, ignore.case=TRUE )
+  sur.sur = sapply(cky.cases$Surname, .fun, contacts$Surname, ignore.case=TRUE )
   
   # match othernames-othernames
-  other.other = sapply(cky.cases$OtherNames, .fun, cky.contacts$OtherNames, ignore.case=TRUE )
+  other.other = sapply(cky.cases$OtherNames, .fun, contacts$OtherNames, ignore.case=TRUE )
   
   # matching surnames-othernames
-  other.sur = sapply(cky.cases$OtherNames, .fun, cky.contacts$Surname, ignore.case=TRUE )
+  other.sur = sapply(cky.cases$OtherNames, .fun, contacts$Surname, ignore.case=TRUE )
   
   # matching othernames-surnames
-  sur.other = sapply(cky.cases$Surname, .fun, cky.contacts$OtherNames, ignore.case=TRUE )
+  sur.other = sapply(cky.cases$Surname, .fun, contacts$OtherNames, ignore.case=TRUE )
   
   # both true when surname match with surname, or both true when surname match with OtherNames
   match = sur.sur * other.other + other.sur * sur.other
@@ -433,7 +503,7 @@ contactMatch = function(.fun=grepl, ...){
   )
 }
 
-x = contactMatch(.fun = agrepl, max=3)
+x = contactMatch(.fun = agrepl, max=1)
 
 # length(x[[1]]); length(x[[2]])
 cat('there are', length(x[[1]]), 'cases with', 
@@ -447,38 +517,216 @@ case.matches = unique(which.match[, 'col'])
 
 # setup match fields
 cky.cases$WasContact = 0L
-cky.contacts$BecameCase = 0L
+contacts$BecameCase = 0L
+contacts$caseID = NA
 
 # select columns
-case.cols = c('ID', 'Surname','OtherNames', 'Age', 'DistrictRes', 'SCRes', 'VillageRes', 'dateOnset')
+case.cols = c('ID', 'Surname','OtherNames', 'Age', 'DistrictRes', 'SCRes', 'VillageRes', 'dateOnset',
+              'ContactName1', 'ContactName2')
 
 contact.cols = c('ThisContactIsAlsoCase', 'ID', 'Surname','OtherNames', 'Age', 'District', 'SubCounty', 'Village', 'DateLastContact', 'SourceCase', 'SourceCaseID')
 
 # print all combos
 for (i in 1:length(x[[1]])){
   cat('\n\n **Match number',i, '**\n')
-  cky.cases[ case.matches[i], 'WasContact'] = 1
-  firstContactMatch = which.match[which(which.match[,'col']==case.matches[i]) , 'row'][1]
-  cky.cases[ case.matches[i], 'ContactID'] = cky.contacts[ firstContactMatch ,
-                                                                     'ID']
-  cky.cases[ case.matches[i], 'SourceCaseID'] = cky.contacts[ firstContactMatch ,
-                                                                     'SourceCaseID']
-  print ( kable( cky.cases[ case.matches[i] , case.cols] ) )
+
+#   firstContactMatch = which.match[which(which.match[,'col']==case.matches[i]) , 'row'][1]
+#   cases[ case.matches[i], 'ContactID'] = contacts[ firstContactMatch , 'ID']
+#   cases[ case.matches[i], 'SourceCaseID' ] = contacts[ firstContactMatch , 'SourceCaseID']
+
+  potential.case.match = cky.cases[ case.matches[i] , case.cols]
+  print ( kable( potential.case.match ) )
   cat('contact:\n')
-  cky.contacts[ which.match[which(which.match[,'col']==case.matches[i]) , 'row'], 'BecameCase'] = 1
-  print( kable( cky.contacts[ which.match[which(which.match[,'col']==case.matches[i]) , 'row'], 
-                              contact.cols]) )
+  
+
+  # add caseID
+#   contacts[ which.match[which(which.match[,'col']==case.matches[i]) , 'row'], 
+#                 'caseID'] = as.character(cases[ case.matches[i] , 'ID' ] )
+#   
+#   # add onset date to contacts
+#   contacts[ which.match[which(which.match[,'col']==case.matches[i]) , 'row'], 
+#                 'onset'] = as.character( cases[ case.matches[i], 'dateOnset'] )
+#   
+  potential.contact.matches = contacts[ which.match[which(which.match[,'col']==case.matches[i]) , 
+                                          'row'],  contact.cols] 
+  
+  potential.contact.matches = potential.contact.matches %>%
+  mutate( incubation = potential.case.match$dateOnset - DateLastContact ,  
+          age.dist = ifelse( is.na(potential.case.match$Age) | is.na(Age), TRUE, 
+                             agrepl(potential.case.match$Age, Age)),
+          district.dist = agrepl(potential.case.match$DistrictRes, District),
+          SC.dist = agrepl(potential.case.match$SCRes, SubCounty) ) %>%
+  filter( incubation >=0 & incubation <= 21 & 
+            age.dist == TRUE &
+            district.dist == TRUE )
+
+  if (nrow(potential.contact.matches) > 1 ){
+    potential.contact.matches = potential.contact.matches %>% filter(SC.dist == TRUE)
+  }
+  
+  print( kable( potential.contact.matches ) )
+
+  # tag contact as case
+  contacts[ contacts$ID %in% potential.contact.matches$ID , 'BecameCase'] = 1
+  contacts[ contacts$ID %in% potential.contact.matches$ID , 'caseID'] = potential.case.match$ID
+  
 }
 
-save(cky.cases, cky.contacts, file='cky.cases.rda')
+#### keys
+
+# key pairs
+# key.pairs = which(match>=1, arr.ind=TRUE)
+keys = data.frame(
+#   contact = contacts$ID[key.pairs[,1]],
+#   case = cky.cases$ID[key.pairs[,2]]
+  contact = contacts[contacts$BecameCase == 1, 'ID'],
+  case = contacts[contacts$BecameCase == 1, 'caseID']
+               )
+
+# manual de-match: no contacts made match to this case
+# notMatch = keys[,'case'] %in% c('GUI-CKY-14-1590', 'GUI-CKY-14-1408', 'GUI-CKY-14-3751',
+#                                 'GUI-CKY-14-3755', 'GUI-CKY-14-3841')
+# keys$match = 1
+# keys[ notMatch, 'match' ] = 0
+
+keys = keys %>% 
+#   filter( match == 1) %>%
+  inner_join(cases, by = c('case' = 'ID')) %>%
+  inner_join(contacts[, c('ID', 'SourceCaseID', 'SourceCase')], by = c('contact' = 'ID')) 
+
+# Case-ContactName should refer to same person as contact's SourceCase
+# keys %>% select(case, contact, ContactName1, ContactName2 , SourceCase) %>% arrange(case)
+
+# edge list
+edges = keys %>%
+  mutate( source = SourceCaseID ) %>%
+  select (source, case)
+
+nodes = unique( c(edges[,1], edges[,2]))
+node.data = cases[ cases$ID %in% nodes, ] %>% select (ID, dateOnset, Age, DistrictRes, SCRes) %>%
+  mutate(week = week(dateOnset),
+         day = as.numeric(strftime(dateOnset, format = "%j"))
+         )
+
+# replace missing age with 35
+node.data[ is.na(node.data$Age), 'Age'] = 35
+
+# limit edges to thosse with node data (why some missing?  not confirmed source cases?)
+edges = edges %>% inner_join(node.data, by = c('source' = 'ID'))
+
+
+# save(cases, contacts, file='cases.rda')
 
 ```
 
-```{r secondary_cases}
-john.ben.interval = new_interval(ymd("2014-SEP-1"), ymd("2014-OCT-30"))
+```{r igraph}
 
-t = cky.cases %>% 
-  filter(dateOnset %within% john.ben.interval ) %>%
+# igraph
+library(igraph)
+edge.list = edges 
+vertices = unique( node.data[node.data$ID %in% c(edge.list[,1], edge.list[,2]),])
+conakry = edge.list %>%
+  graph.data.frame(directed = TRUE, 
+                   vertices = vertices) %>%
+  plot.igraph(layout = as.matrix(vertices[, c('day', 'Age')]), 
+              axes = T , main = "Conakry",  asp = 0,
+              vertex.label = NA,
+              xlim = c(200,320), ylim = c(0,99), rescale = FALSE, 
+              vertex.size = 100, vertex.label.cex = 0.8,
+              edge.arrow.size = 0.5)
+
+
+# Matoto
+sc = 'MATOTO'
+edge.list = edges %>% filter(SCRes %in% sc) 
+vertices = unique( node.data[node.data$ID %in% c(edge.list[,1], edge.list[,2]),])
+matoto.vertices = as.matrix(vertices[, c('day', 'Age')])
+matoto =  edge.list %>% graph.data.frame(directed = TRUE, vertices = vertices)
+# view vertices, edges, and plot
+# V(matoto)
+# E(matoto)
+# plot(matoto, layout = as.matrix(vertices[, c('day', 'Age')]), 
+#               axes = T , main = sc,  asp = 0,
+#               xlim = c(220,320), ylim = c(0,99), rescale = FALSE, 
+#               vertex.size = 300, vertex.label.cex = 0.8,
+#               edge.arrow.size = 0.5)
+
+# Ratoma
+sc = 'RATOMA'
+edge.list = edges %>% filter(SCRes %in% sc) 
+vertices = unique( node.data[node.data$ID %in% c(edge.list[,1], edge.list[,2]),])
+ratoma.vertices = as.matrix(vertices[, c('day', 'Age')])
+ratoma = edge.list %>% graph.data.frame(directed = TRUE, vertices = vertices) 
+
+# Dixinn
+sc = 'DIXINN'
+edge.list = edges %>% filter(SCRes %in% sc) 
+vertices = unique( node.data[node.data$ID %in% c(edge.list[,1], edge.list[,2]),])
+dixinn.vertices = as.matrix(vertices[, c('day', 'Age')])
+dixinn = edge.list %>% graph.data.frame(directed = TRUE, vertices = vertices) 
+
+# Matam
+sc = 'MATAM'
+edge.list = edges %>% filter(SCRes %in% sc) 
+vertices = unique( node.data[node.data$ID %in% c(edge.list[,1], edge.list[,2]),])
+matam.vertices = as.matrix(vertices[, c('day', 'Age')])
+matam = edge.list %>% graph.data.frame(directed = TRUE, vertices = vertices) 
+
+# Kaloum
+sc = 'KALOUM'
+edge.list = edges %>% filter(SCRes %in% sc) 
+vertices = unique( node.data[node.data$ID %in% c(edge.list[,1], edge.list[,2]),])
+kaloum.vertices = as.matrix(vertices[, c('day', 'Age')])
+kaloum = edge.list %>% graph.data.frame(directed = TRUE, vertices = vertices) 
+
+# IGRAPH Plots
+pdf(file = 'igraph.pdf', height = 7, width = 9.5)
+layout(matrix(c(1,2,3,4), 4, 1, byrow=TRUE))
+plot(matoto, layout = matoto.vertices, 
+              axes = T , main = 'Matoto',  asp = 0,
+              xlim = c(100,320), ylim = c(0,99), rescale = FALSE, 
+              vertex.size = 300, vertex.label.cex = 0.8,
+              edge.arrow.size = 0.5)
+plot(ratoma, layout = ratoma.vertices, 
+              axes = T , main = 'Ratoma',  asp = 0,
+              xlim = c(100,320), ylim = c(0,99), rescale = FALSE, 
+              vertex.size = 300, vertex.label.cex = 0.8,
+              edge.arrow.size = 0.5)
+plot(dixinn, layout = dixinn.vertices, 
+              axes = T , main = 'Dixinn',  asp = 0,
+              xlim = c(100,320), ylim = c(0,99), rescale = FALSE, 
+              vertex.size = 300, vertex.label.cex = 0.8,
+              edge.arrow.size = 0.5)
+# plot(matam, layout = matam.vertices, 
+#               axes = T , main = 'Matam',  asp = 0,
+#               xlim = c(220,320), ylim = c(0,99), rescale = FALSE, 
+#               vertex.size = 300, vertex.label.cex = 0.8,
+#               edge.arrow.size = 0.5)
+plot(kaloum, layout = kaloum.vertices, 
+              axes = T , main = 'Kaloum',  asp = 0,
+              xlim = c(100,320), ylim = c(0,99), rescale = FALSE, 
+              vertex.size = 300, vertex.label.cex = 0.8,
+              edge.arrow.size = 0.5)
+
+dev.off()
+```
+
+![Transmission within Conakry](igraph.png)
+
+```{r secondary_cases}
+
+key. = keys %>% 
+  group_by(case) %>% filter(row_number(contact)==1) %>%
+  group_by(contact) %>% filter(row_number(case)==1) %>% as.data.frame()
+
+sourceCases = key. %>% select(SourceCaseID) %>%
+  left_join( cases , by = c('SourceCaseID' = 'ID' )) %>%
+  rename(sourceSCRes = SCRes) 
+  
+john.ben.interval = new_interval(ymd("2014-Aug-1"), ymd("2014-OCT-30"))
+
+t = sourceCases %>% 
+#   filter(dateOnset %within% john.ben.interval ) %>%
   count(SourceCaseID) %>%
   arrange(-n) %>%
   rename(Number_2ndary_Cases = n)
@@ -488,58 +736,89 @@ kable(t)
 total.secondary = sum(t$Number_2ndary_Cases, na.rm=T)
 number.sources = sum(!is.na(t$SourceCaseID))
 
-t %>% filter(!is.na(t$SourceCaseID)) %>%
+g = t %>% filter(!is.na(t$SourceCaseID)) %>%
 ggplot(aes(x=Number_2ndary_Cases )) +
   geom_bar() +
   scale_x_continuous('Number of secondary cases', 
                      breaks = seq(1, max(t$Number_2ndary_Cases), 2)
                      ) 
+g
+png('secondaryCases.png', height = 7, width = 9.5, units = 'in', res=200)
+g
+dev.off()
 #   geom_annotate(x=7, y=10, type='text', text=paste('))
 ```
 
-
 ```{r epicurve_cases_were_contacts, fig.height=7, fig.width=9}
-t = with(cky.cases, table(SCRes, WasContact))
-kable( t  )
 
 # cat('NOTE: For', sum(is.na(cky.cases$SCRes)) ,'cases, DistrictRes is missing')
 
-sourceCases = cases %>% 
-  filter(ID %in% cky.cases$SourceCaseID) %>%
-  rename(SourceCaseID = ID, sourceSCRes = SCRes) %>%
-  select(SourceCaseID, sourceSCRes) 
+# select one key pair for each case; one pair for each contact
+key. = keys %>% 
+  group_by(case) %>% filter(row_number(contact)==1) %>%
+  group_by(contact) %>% filter(row_number(case)==1) %>% as.data.frame()
+
+sourceCases = key. %>% select(SourceCaseID) %>%
+  left_join( cases , by = c('SourceCaseID' = 'ID' )) %>%
+  rename(sourceSCRes = SCRes) %>%
+  select( SourceCaseID, sourceSCRes) %>% unique() 
+sourceCases[is.na(sourceCases$sourceSCRes), 'sourceSCRes'] = 'Missing'
   
-cky.cases %>% 
-  left_join(sourceCases, by= c('SourceCaseID'='SourceCaseID')) %>%
-  mutate( idnum = substrRight(ID, 4),
+g = 
+  cky.cases %>% 
+  left_join( key. %>% select(case, SourceCaseID), by = c('ID'= 'case')) %>%
+  left_join(sourceCases) %>%
+  mutate( idnum = substrRight(SourceCaseID, 4),
           period = as.Date(floor_date(dateOnset, "week")),
           SCRes = toupper(SCRes),
           VillageRes = toupper(VillageRes),
-          WasContact = factor(WasContact, c(0,1), c('No','Yes'))
+          SCRes = ifelse(is.na(SCRes), "Unknown", SCRes) , 
+          sourceSCRes = ifelse(is.na(sourceSCRes), "Not Known Contact", sourceSCRes)
           ) %>% 
-  group_by( period, SCRes, idnum, WasContact, sourceSCRes ) %>%
-  summarize( freq = n() ) %>%  
+#   select( idnum, period, SCRes, sourceSCRes) 
+  group_by( period, SCRes, ID ) %>%
+  summarize( freq = n() ,
+             idnum = idnum,
+             sourceSCRes = sourceSCRes) %>% 
+  filter( !(SCRes %in% 'ICORIRA')) %>%
   mutate( cumsum = cumsum(freq),
           midpoint = (cumsum(freq) - 0.5 * freq)) %>%
   ## plot
   ggplot( aes(x = period , y = freq) ) +
-  geom_bar( stat = 'identity', aes(color = sourceSCRes, fill=sourceSCRes) ) +
-  scale_fill_discrete('Case Was a Contact of Case in:') + # values = c('grey90', 'black')) +
-  scale_color_discrete('Case Was a Contact of Case in:') +
-  geom_text( aes(y = midpoint, ymax=midpoint, label = idnum), size = 2, hjust=1) +
+  geom_bar( stat = 'identity', aes( fill=sourceSCRes, color = SCRes) ) +
+  scale_fill_manual('Source Case from:', values = c('DIXINN' = 'red',
+                                                   'KALOUM' = 'green',
+                                                   'MATOTO' = 'blue',
+                                                   'MATAM' = 'yellow',
+                                                   'RATOMA' = 'purple',
+                                                   'Missing' = 'grey',
+                                                   'Not Known Contact' = 'white'
+                                                   ) ) + 
+  scale_color_manual('Case from:', values = c('DIXINN' = 'red',
+                                                   'KALOUM' = 'green',
+                                                   'MATOTO' = 'blue',
+                                                   'MATAM' = 'yellow',
+                                                   'RATOMA' = 'purple',
+                                                   'Unknown' = 'grey'
+                                                   ) ) + 
+  geom_text( aes(y = midpoint, ymax=midpoint, label = idnum), size = 2, hjust=0.5) +
   scale_x_date('Week beginning', labels = date_format("%b-%d"),
                breaks = date_breaks("week")) +
   ylab('Cases') + 
   theme(axis.text.x = element_text(angle = 90, hjust = 2),
        legend.position = 'top' ) +
   facet_grid(SCRes ~ .)
+g
 
+png('secondaryCases.png', height = 7, width = 9.5, units = 'in', res=200)
+g
+dev.off()
 ```
 
 
 # Donka registry
 
-```{r donka}
+```{r donka, results='hide'}
 library(XLConnect)
 wb = loadWorkbook('fieldData/2014_10_25_Registre Donka Version 4-5.2.xlsx')
 donka = readWorksheet(wb, 'registre') %>% 

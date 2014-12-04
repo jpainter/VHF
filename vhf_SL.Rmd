@@ -1,0 +1,979 @@
+---
+title: "Sierra Leone"
+author: "CDC/OMS"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output:
+  pdf_document:
+    fig_caption: yes
+    keep_tex: yes
+    latex_engine: xelatex
+    number_sections: yes
+    toc: yes
+
+header-includes:
+- \usepackage[section]{placeins}
+- \usepackage{setspace}
+- \usepackage{relsize}
+---
+
+```{r setup, echo=FALSE, results='hide', message=FALSE, warning=FALSE }
+options(tz="GMT+0")
+Sys.setenv(TZ='GMT+0')
+
+library(knitr)
+opts_chunk$set( echo=FALSE, message=FALSE, comment="", 
+                warnings=FALSE, results='asis')
+
+library(XLConnect, quietly=TRUE)
+library(lubridate)
+library(reshape)  # use for rename() function
+
+library(rgeos)
+library(sp)
+
+suppressPackageStartupMessages(library(ggplot2))
+library(scales)
+library(grid)
+library(RColorBrewer)
+
+# library(devtools)
+# devtools::install_github("hadley/tidyr")
+library(tidyr) # install from github (CRAN version not working...)
+library(dplyr, quietly=TRUE) # order is important...
+
+```
+
+# Data 
+
+- Data loaded from export of VHF database.^[export cases as .csv, then open and save file as excel]
+
+```{r read_cas}
+
+# In order for this import to work, must do 2 things first:
+# 1. Open accdb each VHF_CIF file and export to EXCEL, then
+# 2. Export to CSV
+
+dir = 'fieldData/'
+
+file.name = "VHF_CIF1"
+cif1 = read.csv( paste0(dir, file.name, '.csv'), header = TRUE, stringsAsFactors = FALSE)
+
+file.name = "VHF_CIF2"
+cif2 = read.csv( paste0(dir, file.name, '.csv'), header = TRUE, stringsAsFactors = FALSE)
+
+case_data = inner_join(cif1, cif2) %>%
+  mutate( DateReport = dmy(DateReport),
+          DateOnset = dmy(DateOnset) ,
+          DateIsolationCurrent = dmy(DateIsolationCurrent))
+
+```
+
+```{r Define_case_data}
+
+epiCaseDef = data.frame(EpiCaseDef = c(0,1,2,3,4),
+                     EpiCaseDef.label = c('Non-Case','Confirmed',
+                                          'Probable','Suspect', 'Excluded'))
+
+# if else with dates can be troublesome.  see sol at 
+# http://stackoverflow.com/questions/6668963/how-to-prevent-ifelse-from-turning-date-objects-into-numeric-objects
+date.ifelse <- function(cond, yes, no){ class.y <- class(yes)
+                                  X <- ifelse(cond,yes,no)
+                                  class(X) <-class.y; return(X)}
+
+last.report.date = max(case_data$DateReport, na.rm=T) # last day with report
+current.week = week(last.report.date)  
+
+cases = case_data %>% 
+  select( ID, StatusAsOfCurrentDate, 
+          EPICaseDef , StatusReport, FinalStatus,
+          DateReport, DateOnset,
+          DateHospitalCurrentAdmit, DateIsolationCurrent,
+          Age, AgeUnit, Gender, DateDeath, 
+          VillageRes, ParishRes, CountryRes,
+          DistrictRes, SCRes, HCW, HCWposition, HCWFacility, 
+          Funeral, Animals, 
+          Contact, ContactName1, ContactRelation1, ContactDateStart1, ContactDateEnd1,
+          ContactName2, ContactRelation2,  ContactDateStart2, ContactDateEnd2
+          ) %>% 
+  filter(!EPICaseDef==4) %>% # drop 'excluded'
+  mutate( EPICaseDef = as.integer(EPICaseDef)) %>%
+  inner_join(epiCaseDef, by = c('EPICaseDef' = 'EpiCaseDef')) %>%  
+  mutate( 
+          dateOnset = 
+            date.ifelse( is.na(DateOnset), DateReport, DateOnset )
+            , # use onset date if available; DateReport otherwise
+          week = week(dateOnset)  ,
+          # calculate periods based on week function, starting with day before current date
+          period_wk = ifelse( week == current.week, "Week", 
+                          ifelse( week == ( current.week - 1 ), "Week_1",
+                                 ifelse( week == ( current.week - 2 ), "Week_2",
+                                        ifelse( week == ( current.week - 3 ), "Week_3",
+                                        ifelse( week== ( current.week - 4 ), 
+                                               "Week_4", "Previous"))))),
+          period_wk = factor(period_wk, 
+                          levels = c('Week','Week_1','Week_2', 'Week_3', 'Week_4', 'Previous') ),
+          
+          # calculate periods based on 7 day intervals, 
+          # starting with day before current date
+          period = date.ifelse( dateOnset %within% 
+                             interval(last.report.date-edays(6),
+                                      last.report.date
+                                      ), "Last 7 days", 
+                    date.ifelse(dateOnset %within% 
+                           interval(last.report.date-edays(13), 
+                                    last.report.date-edays(7)), "Previous 8-14 days",
+                    date.ifelse(dateOnset %within% 
+                             interval(last.report.date-edays(20), 
+                                      last.report.date-edays(14)), "Previous 15-21 days", 
+                           "Previous"))),
+          period = factor(period, 
+                          levels = c('Last 7 days','Previous 8-14 days',
+                                     'Previous 15-21 days', 'Previous') ),
+          onset.last21days = ifelse( dateOnset  %within% 
+                                     interval(Sys.Date()-edays(1), 
+                                              Sys.Date()-edays(22)), 
+                                     TRUE, FALSE) ,
+          CaseMonth = paste(month(dateOnset), year(dateOnset)),
+          Status = EpiCaseDef.label
+          ) %>%
+    filter( Status %in% c('Confirmed','Probable', 'Suspect') & 
+              dateOnset > ymd('2014-JUN-01'))
+
+```
+
+```{r Clean_Locations}
+
+# function to convert text to Title Case (when strict = F, ignores all upper case words)
+TitleCase = function(s, strict = TRUE) {
+    cap <- function(s) paste(toupper(substring(s, 1, 1)),
+                  {s <- substring(s, 2); if(strict) tolower(s) else s},
+                             sep = "", collapse = " " )
+    sapply(strsplit(s, split = " "), cap, USE.NAMES = !is.null(names(s)))
+}
+
+# TitleCase(c("using AIC for model selection"))
+# TitleCase(c("HELP"))
+
+cases = cases %>%
+  mutate(
+    DistrictRes = TitleCase(DistrictRes),
+    SCRes = TitleCase(SCRes)
+    )
+
+# table(cases$DistrictRes)
+
+  cases[cases$DistrictRes %in% 'Western Area Rural', 'DistrictRes'] = 'Western Rural'
+  
+  cases[cases$DistrictRes %in% "Western Area Urban", 'DistrictRes'] = 'Western Urban'
+  
+  cases[cases$DistrictRes %in% 'Tonkllili', 'DistrictRes'] = 'Tonkolili'
+
+    cases[cases$DistrictRes %in% 'Free Town', 'DistrictRes'] = 'Western Urban'
+
+    cases[cases$DistrictRes %in% '..tonkolili', 'DistrictRes'] = 'Tonkolili'
+
+  cases[cases$DistrictRes %in% 'Kenenma', 'DistrictRes'] = 'Kenema'
+
+# save cases data
+save(cases, file='casesSL.rda')
+
+```
+
+```{r missing_date, results='asis'}
+#  list records missing period
+missingPeriod = cases %>% filter(is.na(dateOnset)) %>% select(ID)
+```
+
+- The most recent case included in this report had symptom onset on 
+**`r format(max(cases$DateReport, na.rm=TRUE), "%d-%B-%Y")`**.
+
+- There are `r nrow(missingPeriod)` records with missing dates:   
+`r cat(missingPeriod$ID, sep=', ')`
+
+# Epicurve by Month
+
+```{r epicurve_monthly, fig.cap='Monthly Ebola Cases, Guinee'}
+
+# epicurve by month (2014 only) 
+
+cases %>% 
+  filter( year(dateOnset) == 2014 ) %>%
+  arrange(dateOnset) %>%
+  mutate( interval = week(dateOnset),
+          period = as.Date(floor_date(dateOnset, "month")) ) %>%  # set time period
+  group_by( period, Status ) %>%
+  summarize( freq = n() ) %>%  
+  ggplot( aes(x = period , y = freq, fill = Status) ) +
+  geom_bar( stat = 'identity', color = 'white') +
+  scale_x_date('month', labels = date_format("%b-%dd"),
+               breaks = date_breaks("month")) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+       legend.position = 'top' ) +
+  scale_fill_manual(values = c('red', 'blue', 'yellow')) 
+
+ggsave('epicurve0_SL.png')
+  
+
+```
+
+# Epicurves By Week (by report date and onset date)
+
+```{r epicurves_weekly_DateReported, fig.height=3.5, fig.cap='Weekly Ebola Cases, Guinee (by date reported)'}
+
+cases %>% 
+  filter( year(DateReport) == 2014 ) %>%
+  arrange(DateReport) %>%
+  mutate( interval = week(DateReport),
+          period = as.Date(floor_date(DateReport, "week")) ) %>%  # set time period
+  group_by( period, Status ) %>%
+  summarize( freq = n() ) %>%  
+  ggplot( aes(x = period , y = freq, fill = Status) ) +
+  geom_bar( stat = 'identity', color = 'white') +
+  scale_x_date('Week beginning', labels = date_format("%b-%d"),
+               breaks = date_breaks("week")) +
+  ylab('Cases') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+       legend.position = 'top' ) +
+  scale_fill_manual(values = c('red', 'blue', 'yellow')) 
+
+ggsave('epicurve1_SL.png')
+```
+
+```{r epicurves_weekly_onsetDate, fig.height=3.5, fig.cap='Weekly Ebola Cases, Guinee (by onset date)'}
+cases %>% 
+  filter( year(dateOnset) == 2014 ) %>%
+  arrange(dateOnset) %>%
+  mutate( interval = week(dateOnset),
+          period = as.Date(floor_date(dateOnset, "week")) ) %>%  # set time period
+  group_by( period, Status ) %>%
+  summarize( freq = n() ) %>%  
+  ggplot( aes(x = period , y = freq, fill = Status) ) +
+  geom_bar( stat = 'identity', color = 'white') +
+  scale_x_date('Week beginning', labels = date_format("%b-%d"),
+               breaks = date_breaks("week")) +
+  ylab('Cases') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1),
+       legend.position = 'top' ) +
+  scale_fill_manual(values = c('red', 'blue', 'yellow')) 
+
+ggsave('epicurve2_SL.png')
+
+```
+
+# Case-Status by Week
+
+```{r tab_status_byOnsetWeek}
+
+t.period_wk = cases %>%    # tabulate margin totals by status
+  filter(!is.na(period_wk)) %>%
+  group_by(Status) %>% 
+  summarise(Total = n())
+
+t = cases %>%  # tabulate totals by status and period_wk
+  filter(!is.na(period_wk)) %>%
+  group_by(Status, period_wk) %>% 
+  summarise(Total = n()) %>% 
+  as.data.frame() %>%  # spread works more reliably on data.frame
+#   mutate( Percent = percent(Total/sum(Total, na.rm=TRUE)) ) %>%
+  spread(period_wk, Total)  %>%
+  inner_join(t.period_wk) 
+
+# tabulate margin totals over status
+TOTALS = cbind(Status = 'TOTAL',
+                      data.frame( t(sapply(t[,2:ncol(t)], sum, na.rm=TRUE) ) )
+                 )
+
+# before adding to bottom of table, t, need to be sure has same colnames
+colnames(TOTALS) = colnames(t)  
+
+t = rbind(t, TOTALS)  # join TOTALS to t
+
+t[is.na(t)] <- 0  # convert NA to 0
+
+# Calculate number of days reported in current week
+daysThisWeek = cases %>% 
+  select(period_wk, dateOnset) %>% 
+  filter(
+    if(sum(period_wk %in% 'Week')>0){period_wk=='Week'}else{period=='Week_1'}
+       ) %>% 
+  summarise( 
+    days = max(dateOnset)- min(dateOnset) + 1 
+    )
+
+cat('The current week has', daysThisWeek$days, 'days\n')
+
+kable(t)  # print table
+
+```
+
+# Case-Status by 7-day period, begining with last reported case
+
+```{r tab_status_7days}
+
+t.period = cases %>%    # tabulate margin totals by status
+  filter(!is.na(period)) %>%
+  group_by(Status) %>% 
+  summarise(Total = n())
+
+t = cases %>%  # tabulate totals by status and period
+  filter(!is.na(period)) %>%
+  group_by(Status, period) %>% 
+  summarise(Total = n()) %>% 
+  as.data.frame() %>%  # spread works more reliably on data.frame
+#   mutate( Percent = percent(Total/sum(Total, na.rm=TRUE)) ) %>%
+  spread(period, Total)  %>%
+  inner_join(t.period) 
+
+# tabulate margin totals over status
+TOTALS = cbind(Status = 'TOTAL',
+                      data.frame( t(sapply(t[,2:ncol(t)], sum, na.rm=TRUE) ) )
+                 )
+
+# before adding to bottom of table, t, need to be sure has same colnames
+colnames(TOTALS) = colnames(t)  
+
+t = rbind(t, TOTALS)  # join TOTALS to t
+
+t[is.na(t)] <- 0  # convert NA to 0
+
+kable(t)  # print table
+
+```
+
+\newpage
+cases by Prefecture
+
+- Y compris les cas confirme et probable, et suspect
+
+
+```{r gadm_map_data, cache=TRUE}
+
+# Get GADM rdata files
+
+# see
+# http://stackoverflow.com/questions/5126745/gadm-maps-cross-country-comparision-graphics
+
+## load a file from GADM (you just have to specify the countries "special part" of the file name, like "ARG" for Argentina. Optionally you can specify which level you want to have
+loadGADM <- function (fileName, level = 1, ...) {
+  # load files downloaded from gadm
+  load(paste(fileName, "_adm", level, ".RData", sep     = ""))
+  gadm
+}
+
+## the maps objects get a prefix (like "ARG_" for Argentina)
+changeGADMPrefix = function (GADM, prefix) {
+  GADM <- spChFIDs(GADM, paste(prefix, row.names(GADM), sep = "_"))
+  GADM
+}
+
+## load file and change prefix
+loadChangePrefix = function (fileName, level = 0, ...) {
+  theFile <- loadGADM(fileName, level)
+  theFile <- changeGADMPrefix(theFile, fileName)
+  theFile
+}
+
+## this function creates a SpatialPolygonsDataFrame that contains all maps you specify in "fileNames".
+## E.g.: 
+## spdf <- getCountries(c("ARG","BOL","CHL"))
+## plot(spdf) # should draw a map with Brasil, Argentina and Chile on it.
+
+getCountries = function (fileNames, level = 0, ...) {
+  polygon <- sapply(fileNames, loadChangePrefix, level)
+  polyMap <- do.call("rbind", polygon)
+  polyMap
+}
+
+
+tolerance = .01
+country = "SLE"
+
+     gadm = getCountries(country, level=3)
+     gadm.f = as.data.frame(gadm) 
+
+    # make list of regions, prefectures, sous prefectures
+    regions = gadm.f %>% select(NAME_1,NAME_2,NAME_3) 
+    colnames(regions) = c('Region', 'DistrictRes', 'SCRes')
+
+     # fix name of capital in GADM file!
+#      regions[regions$DistrictRes == 'Conarky', 'DistrictRes'] = 'Conakry'
+#      regions[regions$Region == 'Conarky', 'Region'] = 'Conakry'
+
+save(regions, file = 'regionsSL.rda')
+
+```
+
+```{r gadm_map_data2}
+
+load('regionsSL.rda')
+
+     SLE3 = gadm %>%
+#             gSimplify(tolerance, topologyPreserve=T) %>%
+            fortify(region = "ID_3") %>%
+            mutate( id = as.integer(id)) %>%
+            reshape::rename(c("id" = "ID_3")) %>%  #explicit call to rename function in reshape package (as opposed to rename function in plyr package)
+            left_join(
+              gadm.f[, c("ID_3", "NAME_1", "NAME_2", "NAME_3")])
+
+# fix name of capital in GADM file!
+# SLE3[SLE3$NAME_2 == 'Conarky', 'NAME_2'] = 'Conakry'
+
+# get location and names for labels
+# Admin 3 labels 
+
+          Names = gadm.f %>% 
+               select( which(colnames(gadm.f) =="NAME_3"),
+                       which(colnames(gadm.f) == "TYPE_3")
+               )
+
+          
+          SLE3.c =  gadm %>%
+                       coordinates()  %>%
+                       as.data.frame() %>%
+                       mutate(Name = Names[,'NAME_3'],
+                              Type = Names[,'TYPE_3']
+                              )
+
+# fix name of capital in GADM file!
+# SLE3.c[SLE3.c$Name == 'Conarky', 'Name'] = 'Conakry'
+
+# Admin 2
+
+     gadm = getCountries(country, level=2)
+     gadm.f = as.data.frame(gadm) 
+
+     SLE2 = gadm %>%
+#             gSimplify(tolerance, topologyPreserve=T) %>%
+            fortify(region = "ID_2") %>%
+            mutate( id = as.integer(id)) %>%
+            reshape::rename(c("id" = "ID_2")) %>%
+            left_join(
+              gadm.f[, c("ID_2", "NAME_1", "NAME_2")])
+
+# fix name of capital in GADM file!
+# SLE2[SLE2$NAME_2 == 'Conarky', 'NAME_2'] = 'Conakry'
+
+# Admin 2 labels
+
+          Names = gadm.f %>% 
+               select( which(colnames(gadm.f) =="NAME_2"),
+                       which(colnames(gadm.f) == "TYPE_2")
+               )
+ 
+          SLE2.c =  gadm %>%
+                       coordinates()  %>%
+                       as.data.frame() %>%
+                       mutate(Name = Names[,'NAME_2'],
+                              Type = Names[,'TYPE_2']
+                              ) 
+
+# fix name of capital in GADM file!
+# SLE2.c[SLE2.c$Name == 'Conarky', 'Name'] = 'Conakry'
+
+```
+
+```{r theme_defaults}
+theme_bare = theme(line = element_blank(),
+                   text = element_blank(),
+                   line = element_blank(),
+                   title = element_blank())
+
+# aesthetic defaults...
+color.brewer = "BuPu"  # "YlGnBu" , 'PuBu'  'Greys' (http://colorbrewer2.org/)
+zero.color = 'white' # add color for cells with zero counts
+background.color = 'grey99' 
+county.border.color = 'grey70' 
+state.border.color = 'grey45'
+legend.placement = c(.5, -.05)  
+legend.font.size = 11 
+
+theme_map =  # coord_map() +
+     theme(
+          legend.position = legend.placement,
+          legend.direction = 'horizontal',
+          legend.background = element_blank(),
+          legend.title=element_text(size=legend.font.size),
+          legend.text = element_text(size=legend.font.size),
+          panel.grid.major=element_blank(),
+          axis.title.x = element_blank(),
+          axis.title.y = element_blank(),
+          axis.ticks = element_blank(),
+          axis.text = element_blank(),
+          panel.border = element_blank(),
+          strip.background = element_rect(colour=background.color, 
+                                          fill=background.color),
+          panel.background = element_rect(fill=background.color),
+          plot.margin = unit(c(0,0,2,0),"cm") # remove plot margins
+     )
+```
+
+```{r epicurve_facet, fig.height=8, fig.width=6.5, fig.cap='Weekly Case Count by Region, Guinee'}
+
+# epicurve by week, Region (2014 only) 
+load('regionsSL.rda')
+Region = regions %>%  # table includes Region, DistrictRes, SCRes
+  select(-SCRes) %>% # remove SCRes
+  unique()  # collapse to unique values of Region and DistrictRes
+
+
+# facet by region; fill by prefecture
+cases %>% 
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  filter( year(dateOnset) == 2014 ) %>%
+  arrange(dateOnset) %>%
+  mutate( interval = week(dateOnset),
+          period = as.Date(floor_date(dateOnset, "week")) ) %>%  # set time period
+  group_by( Region, DistrictRes, period ) %>%
+  summarize( freq = n() ) %>%  
+  ggplot( aes(x = period , y = freq, fill = DistrictRes) ) +
+  geom_bar( stat = 'identity', color = 'white') +
+  scale_x_date('Week', labels = date_format("%b-%d"),
+               breaks = date_breaks("week")) +
+  ylab('Cases') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1) ) +
+#   scale_fill_manual(values = c('red', 'blue', 'yellow')) +
+  facet_grid( Region ~ .)
+
+
+ggsave('epicurve3_SL.png', width=8, height=6 )
+
+```
+
+```{r tab_district, results='asis'}
+p.district = cases %>%  # tabulate margin totals by DistrictRes
+  filter(!is.na(period)) %>%
+  group_by(DistrictRes) %>% 
+  summarize(Total = n()) 
+
+p = cases %>%  # tabulate totals by location
+  filter(!is.na(period)) %>%
+  group_by( period, DistrictRes ) %>% 
+  summarize(Total = n()) %>%
+  as.data.frame() %>%  # spread works more reliably on data.frame
+  spread(period, Total)  %>%
+  merge(p.district) 
+
+p = p %>%
+    arrange(DistrictRes )  # sorted by number in must recent week
+
+# tabulate margin totals over status
+TOTALS = cbind(DistrictRes = 'TOTAL',
+                      data.frame( t(sapply(p[,2:ncol(p)], sum, na.rm=TRUE) ) )
+                 )
+
+# before adding to bottom of table, t, need to be sure has same colnames
+colnames(TOTALS) = colnames(p)  
+
+p = rbind(p, TOTALS) # join TOTALS to t
+
+p[is.na(p)] <- 0  # convert NA to 0
+
+kable(p)  # print table
+
+```
+
+```{r prefets, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee", fig.height=8, fig.width=6.5, eval=FALSE}
+
+# add names of all prefets to case count table
+p.name = data.frame(DistrictRes = unique(regions$DistrictRes))
+p = merge(p.name, p, all.x=TRUE)
+p[is.na(p)] <- 0  # convert NA to 0
+
+# classify values
+p$Cases1 =  cut( p[, 'Last 7 days'], 
+                      breaks = c(0,1,10,20, Inf), 
+                      label = c('0','1-9','10-19','20 +'),
+                      right=FALSE, include.lowest=TRUE)
+
+# classify values over past 3 weeks
+p$weeks3 = 
+    p[, 'Last 7 days'] + p[, 'Previous 8-14 days'] + p[, 'Previous 15-21 days']
+      
+p$Cases3 =  cut( p[, 'weeks3'], 
+                      breaks = c(0,1,10, 20, 100, Inf), 
+                      label = c('0','1-9','10-19','20-100', '100 +'),
+                      right=FALSE, include.lowest=TRUE)
+
+# Join data with map
+p$NAME_2 = p$DistrictRes
+map.data.p = merge(SLE2, p, all.x=TRUE, 
+                 by.y='NAME_2', by.x = 'NAME_2') %>%
+  merge(SLE2.c, all.x = TRUE) %>%
+  arrange(order) 
+
+map.data.p.c = merge(SLE2.c, p, all.x=TRUE, by.y='NAME_2', by.x = 'Name') 
+
+# define colors
+color.brewer = "PuRd" 
+# "YlGnBu" , 'PuBu'  'Greys' (http://colorbrewer2.org/)
+# if categorization is 'diverging'use  color.brewer = 'PiYG'
+colors = brewer.pal(5, color.brewer)
+
+# past 3 weeks
+g = ggplot( ) + theme_map +
+  geom_polygon(data= map.data.p,
+               aes(x=long, y=lat, group=group, 
+                   fill=Cases3), 
+               color="grey50", alpha=1) + 
+  geom_text(data= SLE2.c, aes(label = Name, x=V1, y=V2), size=3) +
+  scale_fill_manual('Cases', values = colors, drop = FALSE)
+g
+ggsave('PrefetMap3_SL.png')
+
+```
+
+```{r prefets_dot, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee", fig.height=8, fig.width=6.5}
+
+# classify values
+p$Cases1 =  cut( p[, 'Last 7 days'], 
+                      breaks = c(0, 1, 5, 10, 20, 50, Inf), 
+                      label = c('0','1-4','5-9','10-19', '20-49', '50+'),
+                      right=FALSE, include.lowest=TRUE)
+
+# classify values over past 3 weeks
+p$weeks23 = 
+    p[, 'Previous 8-14 days'] + p[, 'Previous 15-21 days']
+      
+p$Cases23 =  cut( p[, 'weeks23'], 
+                      breaks = c(0,1,10, 20, 50, 100, Inf), 
+                      label = c('0','1-9','10-19','20-50','50-100', '100 +'),
+                      right=FALSE, include.lowest=TRUE)
+
+# Join data with map
+p$NAME_2 = p$DistrictRes
+map.data.p = merge(SLE2, p, all.x=TRUE, 
+                 by.y='NAME_2', by.x = 'NAME_2') %>%
+  merge(SLE2.c, all.x = TRUE) %>%
+  arrange(order) 
+
+map.data.p.c = merge(SLE2.c, p, all.x=TRUE, by.y='NAME_2', by.x = 'Name') 
+
+color.brewer ="YlOrBr" # "Purples" # 
+colors = brewer.pal(6, color.brewer)  # fill colors
+
+g = ggplot( ) + theme_map +
+  geom_polygon(data= map.data.p,
+               aes(x=long, y=lat, group=group, 
+                   fill=Cases23), 
+               color="grey50", alpha=1) + 
+  geom_text(data= SLE2.c, aes(label = Name, x=V1, y=V2), size=4, hjust = .5, vjust = 1.5) +
+  scale_fill_manual('8-21 days prior', values = colors, drop = FALSE) +
+  geom_point(data= map.data.p.c, aes(x=V1, y=V2, size = Cases1, alpha = Cases1), 
+             color = "#980043") + # maroon ""
+  scale_size_discrete("1-7 days prior ") +
+  scale_alpha_discrete("1-7 days prior ")
+g
+ggsave('PrefetMap4_SL.png', width=6, height=5, units='in')
+```
+
+# Cases by Sous Prefecture
+
+```{r tab_sous_district, results='asis'}
+
+ps.SCRes = cases %>%  # tabulate margin totals by DistrictRes
+  filter(!is.na(period)) %>%
+  group_by(DistrictRes, SCRes) %>% 
+  summarize(Total = n()) 
+
+
+ps = cases %>%  # tabulate totals by location
+  filter(!is.na(period)) %>%
+  group_by( period, DistrictRes, SCRes ) %>% 
+  summarise(Total = n()) %>%
+  as.data.frame() %>%
+  spread(period, Total)  %>%
+  merge(ps.SCRes) 
+
+
+# tabulate margin totals over status
+TOTALS = cbind(DistrictRes = 'TOTAL', SCRes = '',
+                      data.frame( t(sapply(ps[,3:ncol(ps)], sum, na.rm=TRUE) ) )
+               )
+
+# before adding to bottom of table, t, need to be sure has same colnames
+colnames(TOTALS) = colnames(ps)  
+
+ps = rbind(ps, TOTALS) # join TOTALS to t
+
+missing.SCRes = ps %>% filter(is.na(SCRes))
+
+ps[is.na(ps)] <- 0  # convert NA to 0
+
+ps[ps$SCRes == '0', 'SCRes'] = 'not_reported'
+
+# kable(ps)  # print table
+```
+
+```{r}
+# write number of cases with SC not reported.
+cat("Sous-prefecture data is missing for", 
+    sum(is.na(cases$SCRes)), 
+    'records overall, and was not reported for', 
+    nrow(missing.SCRes),
+    'of', 
+    ps %>% filter(DistrictRes == 'TOTAL') %>% 
+                  select(3:5) %>% sum(na.rm = TRUE),
+    'during past 3 weeks. \n')
+```
+
+```{r sous_prefets_3wks, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee", fig.height=8, fig.width=6.5, eval=FALSE}
+
+# add names of all prefets to case count table
+p.name = data.frame(SCRes = unique(SLE3$NAME_3))
+ps = merge(p.name, ps, all.x=TRUE)
+ps[is.na(ps)] <- 0  # convert NA to 0
+
+# classify values over past 3 weeks
+ps$weeks3 = 
+    ps[, 'Last 7 days'] + ps[, 'Previous 8-14 days'] + ps[, 'Previous 15-21 days']
+  
+
+# classify values
+ps$Cases3 =  cut( ps$weeks3, 
+                      breaks = c(0,1,10,20, Inf), 
+                      label = c('0','1-9','10-19','20 +'),
+                      right=FALSE, include.lowest=TRUE)
+
+
+# Join data with map
+ps$NAME_2 = ps$DistrictRes
+ps$NAME_3 = ps$SCRes
+map.data.ps = merge(SLE3, ps, all.x=TRUE, 
+                 by.y= c('NAME_2', 'NAME_3'), 
+                 by.x = c('NAME_2', 'NAME_3')
+                 )%>%
+  arrange(order)
+
+
+# define colors
+color.brewer = "PuRd" 
+# "YlGnBu" , 'PuBu'  'Greys' (http://colorbrewer2.org/)
+# if categorization is 'diverging'use  color.brewer = 'PiYG'
+colors = brewer.pal(4, color.brewer)
+
+# last 3 weeks
+g = ggplot( ) +  theme_map # + theme_bare 
+g = g + theme( axis.text.y = element_blank() )                    
+g = g + geom_polygon(data= map.data.ps, 
+                     aes(x=long, y=lat, group=group, fill=Cases3),
+                     color="grey90", alpha=1)
+g = g + geom_path(data= map.data.p, 
+                     aes(x=long, y=lat, group=group),
+                  color="grey20", alpha=1) 
+g = g + geom_text(data= SLE2.c, aes(label = Name, x=V1, y=V2), size=3)
+g = g + scale_fill_manual('Cases', values = colors, drop = FALSE)
+g
+
+ggsave('sousPrefetMap3_SL.png')
+```
+
+```{r sous_prefets_total, fig.cap="Cas d'Ebola depuis le debut d'epidemie, Guinee", fig.height=8, fig.width=6.5, eval=FALSE}
+# add names of all prefets to case count table
+p.name = data.frame(SCRes = unique(SLE3$NAME_3))
+ps = merge(p.name, ps, all.x=TRUE)
+ps[is.na(ps)] <- 0  # convert NA to 0
+
+# classify values
+ps$CasesTotal =  cut( ps[, 'Total'], 
+                      breaks = c(0,1,10,20, Inf), 
+                      label = c('0','1-9','10-19','20 +'),
+                      right=FALSE, include.lowest=TRUE)
+
+
+# Join data with map
+ps$NAME_2 = ps$DistrictRes
+ps$NAME_3 = ps$SCRes
+map.data.ps = merge(SLE3, ps, all.x=TRUE, 
+                 by.y= c('NAME_2', 'NAME_3'), 
+                 by.x = c('NAME_2', 'NAME_3')
+                 )%>%
+  arrange(order)
+
+
+
+# define colors
+color.brewer = "PuRd" 
+# "YlGnBu" , 'PuBu'  'Greys' (http://colorbrewer2.org/)
+# if categorization is 'diverging'use  color.brewer = 'PiYG'
+colors = brewer.pal(4, color.brewer)
+
+g = ggplot( ) +  theme_map # + theme_bare 
+g = g + theme( axis.text.y = element_blank() )                    
+g = g + geom_polygon(data= map.data.ps, 
+                     aes(x=long, y=lat, group=group, fill=CasesTotal),
+                     color="grey90", alpha=1)
+g = g + geom_path(data= map.data.p, 
+                     aes(x=long, y=lat, group=group),
+                  color="grey20", alpha=1) 
+g = g + geom_text(data= SLE2.c, aes(label = Name, x=V1, y=V2), size=3)
+g = g + scale_fill_manual('Cases', values = colors, drop = FALSE)
+g
+
+ggsave('sousPrefetMap_all_SL.png')
+```
+
+# Personnel de sante infecté et décedé par suite d'Ebola
+
+```{r hcw_data}
+
+# chart of hcw infection by type of work
+
+h = cases %>% 
+  filter( HCW == TRUE) %>% # limit to health care worker (HCW)
+  mutate(interval = week(dateOnset), # set time period
+         hcw.type = # group types hcw
+           ifelse( grepl('LAB', toupper(HCWposition)), 'Lab',
+              ifelse( grepl('M.D', toupper(HCWposition)),
+                           'Medecin', 
+                ifelse( grepl('INF', toupper(HCWposition))
+                                   , 'Infirmiere', 
+                                  'Other'))),
+         frequency = 1
+         ) %>%  
+  filter( year(dateOnset) == 2014 ) %>%
+  select( DistrictRes, SCRes, interval, hcw.type, HCWposition, StatusAsOfCurrentDate, frequency) %>%
+  merge(regions, all.x = TRUE) %>%
+  arrange(interval, hcw.type ) 
+```
+
+Since the onset of the epidemic, there have been 
+`r nrow(h) ` cases among health care workers.
+
+```{r chart_hcw_data, fig.height=8, fig.width=6.5}
+
+# point shapes in each box
+h.2 = h %>%
+  select(interval, DistrictRes, hcw.type, StatusAsOfCurrentDate, frequency) %>% 
+  arrange(interval, hcw.type, StatusAsOfCurrentDate) %>%
+  group_by(interval, DistrictRes) %>%
+  mutate( 
+    cumsum = cumsum( frequency)  ,
+    midpoint = cumsum - .5
+    )
+
+h.2 %>%
+  ggplot( aes(x = interval ) ) +
+  geom_bar( aes(y = frequency, fill = hcw.type), 
+            stat = 'identity', color = 'white') +
+  geom_point(data = h.2, 
+             aes(y = midpoint, ymax = midpoint, 
+                 shape = StatusAsOfCurrentDate, 
+                 alpha = StatusAsOfCurrentDate)
+             ) +
+  theme(axis.text.x = element_text(angle = 90),
+        legend.position = 'top' ) +
+  scale_x_discrete('Week', limits = c(min(h$interval) - 1, max(h$interval) + 1) ) +
+  scale_fill_discrete('Position') +
+  scale_shape_manual('Status', values = c(25,19,19)) +
+  scale_alpha_manual('Status', values = c(.5, 0,1)) +
+  facet_grid( DistrictRes ~ .) 
+
+ggsave('epicurve_HCW_SL.png', width=8, height=6 )
+
+```
+
+Of these, 
+`r nrow(h %>% filter(StatusAsOfCurrentDate == 'Décédé'))` died.
+
+```{r hcw_risk}
+t = with(h, table(hcw.type, StatusAsOfCurrentDate))
+prop.table(t, 1)
+
+t = with(h %>% filter(hcw.type == 'Other'), table(HCWposition, StatusAsOfCurrentDate))
+t.p = prop.table(t, 1)
+kable(t)
+```
+
+
+For the sake of visualiztion, data avaialable on the type health work was classified as Infirmiere, Lab, Medecin, or other.  
+
+The following table lists the position descriptions available for type of health care worker.  
+
+`r kable(h %>% count(hcw.type))`
+
+The free text given for each type is shown below.  
+
+
+Infirmiere: 
+```{r}
+I = h  %>%  
+  filter(hcw.type %in% 'Infirmiere')
+
+paste( unique(I$HCWposition), collapse = ', ') 
+```
+
+Lab: 
+```{r}
+L = h  %>%  
+  filter( hcw.type %in% 'Lab')
+
+paste( unique(L$HCWposition), collapse = ', ') 
+```
+
+Medecin: 
+```{r}
+M= h  %>%  
+  filter(hcw.type %in% 'Medecin')
+
+paste( unique(M$HCWposition), collapse = ', ') 
+```
+
+Other: 
+```{r}
+O = h  %>%  
+  filter( hcw.type %in% 'Other')
+
+paste( unique(O$HCWposition), collapse = ', ') 
+```
+
+# Indicators
+
+## Days to Isolation
+```{r isolation}
+
+# Time from onset to isolation
+data = cases %>% 
+  select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  filter(DateIsolationCurrent > DateOnset ) %>%
+  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ) ) %>%
+  filter(daysToIso < 28 & 
+           StatusAsOfCurrentDate %in% c('ALIVE', 'DEAD')
+         )
+ 
+g = ggplot(data, aes( month(DateOnset), daysToIso)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('Days to Isolation', breaks = seq(0, 28, 2)) +
+    geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
+    scale_colour_manual('Status', values = c("green", "red")) +
+    geom_boxplot( aes(group = month(DateOnset)) , outlier.shape = NA, fill = NA) 
+g
+```
+
+```{r isolation_region, fig.height=8}
+g + facet_grid( Region ~ .)
+```
+
+# Number Not Isolated
+
+```{r noIso}
+
+# Time from onset to isolation
+data = cases %>% 
+  select( DateOnset, DateIsolationCurrent, StatusReport, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  filter(DateIsolationCurrent > DateOnset ) %>%
+  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ),
+          StatusReport = factor(StatusReport, labels = c('Dead', 'Alive'))
+          ) %>%
+  filter(daysToIso < 28)
+ 
+g = ggplot(data, aes( month(DateOnset))) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    geom_bar(aes(fill = StatusReport), color = 'black', stat='bin', binwidth = 1, position = 'stack' ) +
+    scale_fill_manual('Status at Report', values = c("red", "green")) 
+g
+
+kable( data %>% filter(StatusReport == 'Dead') %>% count(Region))
+```
+

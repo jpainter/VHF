@@ -3,14 +3,15 @@ title: "Conakry_MMWR"
 author: "CDC/OMS"
 date: "Friday, October 24, 2014"
 output:
-  pdf_document: default
+  pdf_document:
+    fig_caption: yes
   word_document:
     fig_caption: yes
 ---
 
 ```{r setup, echo=FALSE, results='hide', message=FALSE, warning=FALSE }
-options(tz="GMT+0")
-Sys.setenv(TZ='GMT+0')
+# options(tz="GMT+0")
+# Sys.setenv(TZ='GMT+0')
 
 library(knitr)
 opts_chunk$set( echo=FALSE, message=FALSE, comment="", 
@@ -35,12 +36,12 @@ library(dplyr, quietly=TRUE) # order is important...
 
 ```
 
-# Conakry, September 2014
+# Guinea, September-October 2014
 
 
 ```{r, echo=FALSE, message=FALSE}
 
-September = new_interval(ymd('2014-SEP-01'), ymd('2014-SEP-30') )
+SeptemberOctober = new_interval(ymd('2014-SEP-01'), ymd('2014-OCT-31') )
 
 load('regions.rda')
 Region = regions %>%  # table includes Region, DistrictRes, SCRes
@@ -51,22 +52,157 @@ load('cases.guinea.rda')
 
 data = cases.guinea %>% 
   merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
-  filter(dateOnset %within% September ) %>% 
-  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ) ) 
+  filter(dateOnset %within% SeptemberOctober ) %>% 
+  mutate( 
+    month = months(dateOnset),
+    daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ),
+    ages = ifelse( AgeUnit %in% 'Ans', Age*12, Age)
+    ) 
 
-x = data %>% count(Region, DistrictRes)
-# Region %in% c('Conakry' , 'Coyah', "N'Zerekore") &
-x = rbind(x, data.frame(Region = 'total', DistrictRes = '', data %>% count()) )
-kable( comma(x), align = c('l','l','r') )
+data.cky = data %>% filter( Region %in% 'Conakry')
+data.kindia = data %>% filter( Region %in% 'Kindia')
+data.forrest = data %>% filter( Region %in% 'Nzérékoré')
 
-x = data %>% count(Region)
-x = rbind(x, data.frame(Region = 'total',  data %>% count()) )
-kable( comma(x), align = c('l','r') )
+
 ```
 
-In Guinea, most cases of Ebola virus disease (EVD) occured in Conakry or the forrest region (Nzérékoré), aproximately 450 miles from Conakry, and cases in any region were transported to one of two EVD treatment centers in Conakry or Guéckédou During September 2014, there were `r data %>% count()` new cases of EVD.  Of these, `r data %>% filter(Region %in% 'Conakry') %>% count()` were identified in Conakry, `r data %>% filter(Region %in% 'Kindia') %>% count()` and `r data %>% filter(Region %in% 'Nzérékoré') %>% count()` in the forrest region.  The median age was …
+In Conakry, Guinea, the number of Ebola virus disease (EVD) with illness onset increased during September-October, 2014. Conakry is approximately 450 miles from the forrest region (Gueckedou, Macenta, Nzérékoré, and Beyla districts), where most EVD cases have occured.  During the same period, cases also increased in Kindia, the district adjacent to Conakry.  There were `r data %>% count()` new cases of EVD in Guinea.  Of these, `r data %>% filter(Region %in% 'Conakry') %>% count()` were identified in Conakry, `r data %>% filter(Region %in% 'Kindia') %>% count()` in Kindia, and `r data %>% filter(Region %in% 'Nzérékoré') %>% count()` in the forrest region.  The median age of new EVD cases in Guinea was 
+`r round(median(data$age, na.rm=T)/12,0)` years [range: `r min(data$age, na.rm=T)` months - `r round(max(data$age, na.rm=T)/12, 0)` years];
+`r round(median(data.cky$age, na.rm=T)/12,0)` years [`r min(data.cky$age, na.rm=T)` months - `r round(max(data.cky$age, na.rm=T)/12,0)` years] in Conakry; 
+`r round(median(data.kindia$age, na.rm=T)/12,0)` years [`r min(data.kindia$age, na.rm=T)` months - `r round(max(data.kindia$age, na.rm=T)/12, 0)` years] in Kindia;  and, 
+`r round(median(data.forrest$age, na.rm=T)/12,0)` years [`r min(data.forrest$age, na.rm=T)` months - `r round(max(data.forrest$age, na.rm=T)/12, 0)` years] in the forrest region.  
+
+```{r case_counts, include=FALSE}
+x = data %>% count(Region, month) %>% as.data.frame()
+# Region %in% c('Conakry' , 'Coyah', "N'Zerekore") &
+
+y = x %>%  spread(month, n)
+
+# y = rbind(y, data.frame(Region = 'total', data %>% count()) )
+kable( comma(y), align = c('l', rep('r', ncol(y)-1)) )
+```
 
 
+```{r epicurve_facet_sc, fig.height=8, fig.width=6.5, fig.cap='Weekly Case Count by Region, Guinee'}
+
+#kindia geography
+
+# data.kindia %>%  count(DistrictRes, ParishRes, SCRes, VillageRes)
+  
+cky.kindia = rbind(data.cky, data.kindia)
+
+# facet by region; fill by prefecture
+SClevels = unique(toupper(cky.kindia[order(cky.kindia$Region, cky.kindia$SCRes), 'SCRes']))
+
+ cky.kindia = cky.kindia %>%
+  mutate( 
+    SCRes = factor( toupper(SCRes), levels = SClevels) )
+  
+cky.kindia %>%
+  filter( year(dateOnset) == 2014 ) %>%
+  arrange(dateOnset) %>%
+  mutate( interval = week(dateOnset),
+          period = as.Date(floor_date(dateOnset, "week")) ) %>%  # set time period
+  group_by( Region, period ) %>%
+  summarize( freq = n() ) %>%  
+  ggplot( aes(x = period , y = freq, fill = Region) ) +
+  geom_bar( stat = 'identity', color = 'white') +
+  scale_x_date('Week', labels = date_format("%b-%d"),
+               breaks = date_breaks("week")) +
+  ylab('Cases') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1) ) +
+#   scale_fill_manual(values = c('red', 'blue', 'yellow')) +
+  facet_grid( Region ~ .)
+
+
+```
+
+# Conakry Subdistricts
+
+```{r epicurve_facet, fig.height=8, fig.width=6.5, fig.cap='Weekly Case Count by Region, Guinee'}
+
+# # clean district names with fuzz matching (agrepl)
+# SCRes = 'RATOMA'
+# cky.kindia[ agrepl(SCRes, cky.kindia$SubCounty, max =1), 'SubCounty' ] = SCRes
+# SCRes = 'MATOTO'
+# cky.kindia[ agrepl(SCRes, cky.kindia$SubCounty, max =1), 'SubCounty' ] = SCRes
+# SCRes = 'MATAM'
+# cky.kindia[ agrepl(SCRes, cky.kindia$SubCounty, max =1), 'SubCounty' ] = SCRes
+# SCRes = 'KALOUM'
+# cky.kindia[ agrepl(SCRes, cky.kindia$SubCounty, max =1), 'SubCounty' ] = SCRes
+# SCRes = 'DIXINN'
+# cky.kindia[ agrepl(SCRes, cky.kindia$SubCounty, max =1), 'SubCounty' ] = SCRes
+# 
+# # special cases
+# exceptions = c('COLEAH', 'CONAKRY', 'DR FANTA BINTOU', 'M', 'SANGOYA', 'SONFONIA GARE')
+# cky.kindia[ cky.kindia$SubCounty %in% exceptions, 'SCRes' ] = NA
+
+
+# facet by region; fill by prefecture
+cky.kindia %>% 
+  arrange(dateOnset) %>%
+  mutate( interval = week(dateOnset),
+          period = as.Date(floor_date(dateOnset, "week"))
+          ) %>%  # set time period
+  group_by( Region, SCRes, period ) %>%
+  summarize( freq = n() ) %>%  
+  ggplot( aes(x = period , y = freq, fill = Region) ) +
+  geom_bar( stat = 'identity', color = 'white') +
+  scale_x_date('Week', labels = date_format("%b-%d"),
+               breaks = date_breaks("week")) +
+  ylab('Cases') + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 1) ) +
+#   scale_fill_manual(values = c('red', 'blue', 'yellow')) +
+  facet_grid( SCRes ~ .)
+
+
+```
+
+# It is critical to monitor the number of new cases who were known contacts.
+
+Once facilities are available for effective isolation of patients, it is critical to monitor the contacts of all cases diagnosed within the last 21 days. A critical metric for monitoring the success of outbreak control through contact tracing is to identify the number of new cases who were known contacts and that were being monitored daily. This metric provides greater insight into epidemic control than monitoring of case counts alone. In conakry, we found that cases counts rose at alarming levels, but that all new cases were previously identified as contacts and were being followed by contact tracing teams. When symptoms developed in these known contacts they were transfered to the Ebola treatment facility, thereby greatly limiting transmission to others.
+
+# Chain of transmision diagrams reinforce contact tracing by verifying data and give insight into nature of ongoing transmission.
+
+Constructing chains of transmission diagrams permits an understanding of how and where transmission is occurring. We found that all new cases were geographically concentrated among families. Thus transmission was not diffuse and reassured us that there were not unknown chains of transmission. Despite rising case counts initially, continued contact tracing should lead to dramatic reduction in new cases. (As contact tracing becomes effective, R0 likely to have apparent increase; models of increasing case counts should be interpreted with caution during this period.)
+
+# Understanding transmission dynamics informs control strategies and may avert innapropriate response to rising case counts
+
+As images from Monrovoia and Freetown showed large number of cases outside treatment facilities, and media focussed on 'outbreak out of control', local politicians wanted to not only reduce outbreak, but also to limit appearance of 'outbreak out of control': Conakry is no Monrovia. It was suggested that moving treatment center outside of Conakry would limit perception of risisng epidemic in Conakry. Despite local opinions suggesting cases should be removed from Conakry, we strongly encuraged maintaining treatment facilities as close to new cases as possible. No new cases of Ebola were identified among staff working in the treatment center or in the surrounding areas, indicating that even when located in densely populated environment, urban treatment centers have benefit of being accessible to patients (many arrived on their own) without increasing transmission locally.
+
+# Information Flow
+ 
+When Ebola symptoms are identified in a person, a public health alert is triggered to provide effective patient care, stop disease transmission, and offer community education. To receive health care, the suspect patient is transported to the Ebola treatment center (ETC) and placed in isolation. Specimens are taken for laboratory confirmation, with the results usually being available within 24 hours. Affected persons are hospitalized until their laboratory specimens are negative. When an initial laboratory result is negative, the patient is tested again the next day.
+ 
+A case notifications form, including demographic, clinical, epidemiologic, and laboratory information, is completed at the ETC for all patients, including suspect, probable and laboratory-confirmed at the ETC. Data collected on the form are entered into an Excel® (Microsoft Corp., Redmond, Washington) spreadsheet by the ETC staff and sent every evening to the World Health Organization (WHO) and Guinean Ministry of Health (MoH). Data sent from the two Guinean ETCs (i.e., Conakry and Guéckedou) are merged into the Epi Info™ (CDC, Atlanta, Georgia) viral hemorrhagic fever (VHF) national database, updated, and analyzed daily. Additionally, as laboratory results become available, they are reported by e-mail to the ETC and WHO/MoH to update the national database.
+ 
+To stop disease transmission, information regarding contacts is also obtained for all identified Ebola patients. Contacts are systematically monitored for symptoms for 21 days (i.e., wellness checks and temperature monitoring daily); any contact demonstrating Ebola symptoms is placed in isolation, tested for the virus, and asked about their contacts. If a contact does not have any symptoms after 21 days, the contact is not at risk for Ebola. Contact tracing teams and field supervisors are responsible for the prompt and full implementation of contact tracing activities, and the contact tracing process repeats with each newly identified patient until no new cases occur. Contact tracing information is also sent to WHO/MoH to update information in the national database.
+ 
+
+# Other stuff to include…
+
+![network diagram](igraph.png)
+
+•  Chain of transmission diagrams related to social network diagrams.
+•	Case investigation form provides details of possible sources of transmission to the current patient. More importantly, it provides names of contacts who may have been exposed. Combining case and contact data into one database helpful. Ideal to have strong database link between case and contact.
+•	Contact tracing teams critical to control of outbreak and should be strengthened.
+•	Supervision and monitioring should include reconstructing the chain of transmission. Visualizing chain of transmission provides feedback on importance of contact tracing and helps assure accurate information is being gathered.
+
+
+# From Eric:
+
+The Guinean MoH is implementing contact tracing throughout the country where community agents visit identified contacts daily for fever and symptom checks for 21 days after last exposure to a EVD case.  Robust contact tracing will reduce and ultimately stop the epidemic.  Community agent supervisors spot check with random visits to contact families, fill in and report the contact tracing forms daily, and have biweekly meetings to respond to challenges.
+ 
+The impact of contact tracing is evident in comparing the incidence of EVD in Conakry versus a secondary city of Coyah.  The current incidence of Conakry is 9.6 per 100,000 versus 14.3 per 100,000 for Coya.  Figure 1 compares the incidence of Conakry versus Coyah over the last four weeks and shows the consequences of weak contact tracing.  Conakry has shown a 54% increase in incidence whereas Coyah showed almost 400% increase.  Over the last two weeks, Coyah had a reticent family who refused access by community agents.  The result was an explosive increase in cases where 19 of the members of the family have tested positive in one day for EVD and are in currently in the Ebola treatment center.  The MoH, WHO, and CDC have sent epidemiologists, social mobilizers, and an infection control team to respond. A community health agent was successful in convincing the family to send in their sick cases adhere to 21 day follow up.
+ 
+The commune of Matoto in Conakry, on the otherhand, has had robust contact tracing over the last four weeks.  Where cases have been identified through contacts and have been sent to the Ebola treatment center by community agents and supervisors themselves.  The additional cases have also been linked to one transmission chain where they are all family members of the original case.  CDC will continue to strengthen contact tracing in collaboration with the MoH and WHO.
+ 
+ 
+ ![MatotoCoyah1](MatotoCoyah1.png)
+![MatotoCoyah2](MatotoCoyah2.png)
+   ![MatotoCoyah3](MatotoCoyah3.png)
+   
+   
 ## Days to Isolation by Region, Guinea
 
 ```{r isolation_g_region, warning=FALSE}
@@ -88,7 +224,7 @@ g = ggplot(data, aes( month(DateOnset), daysToIso)) +
     scale_x_continuous('Month', breaks = c(1:12)) +
     scale_y_continuous('Days to Isolation', breaks = seq(0, 28, 2)) +
     geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
-    scale_colour_manual('Status', values = c("red", "green")) +
+    scale_colour_manual('Status', values = c('grey', "green", "red")) +
     geom_boxplot( aes(group = month(DateOnset)) , outlier.shape = NA, fill = NA)  +
   facet_grid( Region ~ .)
 g
@@ -105,7 +241,7 @@ Region = regions %>%  # table includes Region, DistrictRes, SCRes
 # Time from onset to isolation
 load('cases.guinea.rda')
 data = cases.guinea %>% 
-  filter(dateOnset %within% September ) %>% 
+  filter(dateOnset %within% SeptemberOctober ) %>% 
   select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, DistrictRes) %>%
   merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
   filter(DateIsolationCurrent > DateOnset ) %>%
@@ -131,39 +267,8 @@ g = ggplot(data, aes(x = daysToIso, y = survival, label = n)) +
   facet_grid( Region ~ .)
 g 
 
-survival = glm(survival ~ daysToIso, data = data)
+# survival = glm(survival ~ daysToIso, data = data)
 
 
 ```
 
-# It is critical to monitor number of new cases who were known contacts.
-
-Once facilities are available for effective isolation of patients, it is critical to monitor the contacts of all cases diagnosed within the last 21 days. A critical metric for monitoring the success of outbreak control through contact tracing is to identify the number of new cases who were known contacts and that were being monitored daily. This metric provides greater insight into epidemic control than monitoring of case counts alone. In conakry, we found that cases counts rose at alarming levels, but that all new cases were previously identified as contacts and were being followed by contact tracing teams. When symptoms developed in these known contacts they were transfered to the Ebola treatment facility, thereby greatly limiting transmission to others.
-
-# Chain of transmision diagrams reinforce contact tracing by verifying data and give insight into nature of ongoing transmission.
-
-Constructing chains of transmission diagrams permits an understanding of how and where transmission is occurring. We found that all new cases were geographically concentrated among families. Thus transmission was not diffuse and reassured us that there were not unknown chains of transmission. Despite rising case counts initially, continued contact tracing should lead to dramatic reduction in new cases. (As contact tracing becomes effective, R0 likely to have apparent increase; models of increasing case counts should be interpreted with caution during this period.)
-
-# Understanding transmission dynamics informs control strategies and may avert innapropriate response to rising case counts
-
-As images from Monrovoia and Freetown showed large number of cases outside treatment facilities, and media focussed on 'outbreak out of control', local politicians wanted to not only reduce outbreak, but also to limit appearance of 'outbreak out of control': Conakry is no Monrovia. It was suggested that moving treatment center outside of Conakry would limit perception of risisng epidemic in Conakry. Despite local opinions suggesting cases should be removed from Conakry, we strongly encuraged maintaining treatment facilities as close to new cases as possible. No new cases of Ebola were identified among staff working in the treatment center or in the surrounding areas, indicating that even when located in densely populated environment, urban treatment centers have benefit of being accessible to patients (many arrived on their own) without increasing transmission locally.
-
-Other stuff to include…
-•  [network diagram]. Chain of transmission diagrams related to social network diagrams.
-•	Case investigation form provides details of possible sources of transmission to the current patient. More importantly, it provides names of contacts who may have been exposed. Combining case and contact data into one database helpful. Ideal to have strong database link between case and contact.
-•	Contact tracing teams critical to control of outbreak and should be strengthened.
-•	Supervision and monitioring should include reconstructing the chain of transmission. Visualizing chain of transmission provides feedback on importance of contact tracing and helps assure accurate information is being gathered.
-
-
-
-From Eric:
-The Guinean MoH is implementing contact tracing throughout the country where community agents visit identified contacts daily for fever and symptom checks for 21 days after last exposure to a EVD case.  Robust contact tracing will reduce and ultimately stop the epidemic.  Community agent supervisors spot check with random visits to contact families, fill in and report the contact tracing forms daily, and have biweekly meetings to respond to challenges.
- 
-The impact of contact tracing is evident in comparing the incidence of EVD in Conakry versus a secondary city of Coyah.  The current incidence of Conakry is 9.6 per 100,000 versus 14.3 per 100,000 for Coya.  Figure 1 compares the incidence of Conakry versus Coyah over the last four weeks and shows the consequences of weak contact tracing.  Conakry has shown a 54% increase in incidence whereas Coyah showed almost 400% increase.  Over the last two weeks, Coyah had a reticent family who refused access by community agents.  The result was an explosive increase in cases where 19 of the members of the family have tested positive in one day for EVD and are in currently in the Ebola treatment center.  The MoH, WHO, and CDC have sent epidemiologists, social mobilizers, and an infection control team to respond. A community health agent was successful in convincing the family to send in their sick cases adhere to 21 day follow up.
- 
-The commune of Matoto in Conakry, on the otherhand, has had robust contact tracing over the last four weeks.  Where cases have been identified through contacts and have been sent to the Ebola treatment center by community agents and supervisors themselves.  The additional cases have also been linked to one transmission chain where they are all family members of the original case.  CDC will continue to strengthen contact tracing in collaboration with the MoH and WHO.
- 
- 
- ![MatotoCoyah1](MatotoCoyah1.png)
-![MatotoCoyah2](MatotoCoyah2.png)
-   ![MatotoCoyah3](MatotoCoyah3.png)
