@@ -265,14 +265,25 @@ options(stringsAsFactors=FALSE)
 text = readLines(file, skipNul=TRUE, encoding="UTF-8", n=-1L )
 case_guinea_sl = read.csv(textConnection(text), header = TRUE, stringsAsFactors = FALSE)
 
+epiCaseDef = data.frame(EpiCaseDef = c(0,1,2,3,4),
+                     EpiCaseDef.label = c('Non-Case','Confirmed',
+                                          'Probable','Suspect', 'Exclude'))
+
 # convert character data to dates
 case_guinea_sl = case_guinea_sl %>% 
   mutate(
           DateIsolationCurrent = dmy(DateIsolationCurrent) ,
           DateHospitalCurrentAdmit = dmy(DateHospitalCurrentAdmit),
           DateReport = dmy(DateReport), 
-          DateOnset = dmy(DateOnset)
-          )
+          DateOnset = dmy(DateOnset),
+          dateOnset = pmin( DateReport, DateOnset , na.rm = T),
+          EpiCaseDef = as.integer(EpiCaseDef)) %>%
+  inner_join(epiCaseDef) %>%  
+  mutate(
+          Status = EpiCaseDef.label
+        ) %>%
+  filter( Status %in% c('Confirmed','Probable', 'Suspect'))
+
 
 # set timezone attributes
 attr(case_guinea_sl$DateOnset, "tzone") <- "UTC"
@@ -281,22 +292,8 @@ attr(case_guinea_sl$DateHospitalCurrentAdmit, "tzone") <- "UTC"
 attr(case_guinea_sl$DateIsolationCurrent, "tzone") <- "UTC"
 
 
-EpiCaseDef = data.frame(EpiCaseDef = c(0,1,2,3,4),
-                     EpiCaseDef.label = c('Non-Case','Confirmed',
-                                          'Probable','Suspect', 'Excluded'))
-
 last.report.date = max(case_guinea_sl$DateReport, na.rm=T)  # last day with report
 current.week = week( last.report.date)
-
-cases.guinea = case_guinea_sl %>% 
-  mutate( EpiCaseDef = as.integer(EpiCaseDef)) %>%
-  inner_join(EpiCaseDef) %>%  
-  mutate(
-          dateOnset = pmin( DateReport, DateOnset , na.rm = T),
-          # use onset date if available; DateReport otherwise
-          Status = EpiCaseDef.label
-          ) %>%
-    filter( Status %in% c('Confirmed','Probable', 'Suspect'))
 
 # clean districtRes
 
