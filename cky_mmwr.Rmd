@@ -23,7 +23,7 @@ output:
 
 library(knitr)
 opts_chunk$set( echo=FALSE, message=FALSE, comment="", 
-                warnings=FALSE, results='asis', 
+                warning = FALSE, results='asis', 
                 fig.width = 6.5, fig.height = 4,
                 cache = FALSE)
 
@@ -663,7 +663,8 @@ load('cky.keys.rda')
 igraphChain = function( edges = cky.edges, 
                         keys = cky.keys, 
                         node.data = data, 
-                        sourceID = 'GUI-CKY-14-1365'
+                        sourceID = 'GUI-CKY-14-1365',
+                        title = ''
                         ){
   
 edge.list = edges %>% 
@@ -702,7 +703,7 @@ v.colors = ifelse(node.data$Gender == 1, 'light gray', 'dark gray')
 v.colors[ node.data$ID %in% sourceID ] = 'black'
 
 plot(A, layout = A.vertices, 
-              axes = T , main = 'Case A Transmission',  asp = 0,
+              axes = T , main = title,  asp = 0,
               xlim = c(0, 25), ylim = c(0,80), rescale = FALSE, 
               xlab = 'Days from Last Contact with Case A to Illness Onset', 
               ylab = 'Age (years)',
@@ -711,18 +712,30 @@ plot(A, layout = A.vertices,
               edge.arrow.size = 0.5)
 }
 
+library(R.devices)
+devOptions("png", width = 1024)
+
+devEval("png", name="igraphChains", aspectRatio=0.6, {
+
+# png( filename = 'igraphChains.png', width = 6.5, height = 6.5, units = 'in', res = 200)
+par( mfrow = c( 3, 1 ) )
+
 # case A
-igraphChain(sourceID = 'GUI-CKY-14-1365')
+igraphChain(sourceID = 'GUI-CKY-14-1365', title = 'Case A Transmission')
 
 # case B 
-igraphChain(sourceID = 'GUI-COY-14-0003')
+igraphChain(sourceID = 'GUI-COY-14-0003', title = 'Case B Transmission')
 
 # case C
-igraphChain(sourceID = 'GUI-KER-14-3034')
+igraphChain(sourceID = 'GUI-KER-14-3034', title = 'Case C Transmission')
+  
+})
 
+# dev.off()
 
-# case B
 ```
+
+![Transmission from sources to secondary cases.  Position of cases is plotted as the days from last exposure to onset along the x-axis (for clarity, the source cases is placed at 0) and age in years along the y axis.]('figures/igraphChains.png')
 
 # Discussion
 
