@@ -6,8 +6,33 @@
 # match surname-surname
 
 # load data from original source -- see dashboard.Rmd or vhf.Rmd
-load('contacts.rda')
+
+# load('cases.guinea.rda') # see vhf.rmd; data has had locations put in consistent style to match regions.rda
+# cases = cases.guinea
 load('cases.rda')
+# encoding check
+table(cases$Surname)
+table(cases$DistrictRes)
+
+# load('contacts.guinea.rda')
+load('contacts.rda')
+contacts = contacts.guinea
+table(contacts$Surname)
+table(contacts$District)
+
+# clean district names with fuzz matching (agrepl)
+Origine = 'Télimélé'
+contacts[ agrepl(Origine, contacts$District, ignore.case = T, max.distance =4), 'District' ] = Origine
+Origine = 'Conakry'
+contacts[ agrepl(Origine, contacts$District, ignore.case = T, max.distance =4), 'District' ] = Origine
+Origine = 'Forécariah'
+contacts[ agrepl(Origine, contacts$District, ignore.case = T, max.distance =4), 'District' ] = Origine
+Origine = 'Kérouané'
+contacts[ agrepl(Origine, contacts$District, ignore.case = T, max.distance =4), 'District' ] = Origine
+Origine = 'Guéckédou'
+contacts[ agrepl(Origine, contacts$District, ignore.case = T, max.distance =4), 'District' ] = Origine
+table(contacts$District)
+
 
 # Test data
 # needle = c('a', 'b','c','d','e')
@@ -22,25 +47,27 @@ nameMatch = function( .needles = needles,
                         ...
                         ){
   library( plyr )
+  library(dplyr)
   # match surname-surname:  result is matrix with columns = cases; rows = contacts
-  m <- maply( .needles, FUN ,
+  m <- maply( .needles, FUN , 
                         .haystack,
                         .progress = "text",
                         ignore.case = .ignore.case)
   return(m)
 }
 
-# nameMatch( needle, haystack, agrepl)
+### Perform name match... nameMatch( needle, haystack, agrepl)  ####
 
-sur.sur = nameMatch(cases$Surname, contacts$Surname)
-sur.other = nameMatch(cases$Surname, contacts$OtherNames)
-other.sur = nameMatch(cases$OtherNames, contacts$Surname)
-other.other = nameMatch(cases$OtherNames, contacts$OtherNames)
+sur.sur = nameMatch(cases$Surname, contacts$Surname, max.distance = 4)
+sur.other = nameMatch(cases$Surname, contacts$OtherNames, max.distance = 4)
+other.sur = nameMatch(cases$OtherNames, contacts$Surname, max.distance = 4)
+other.other = nameMatch(cases$OtherNames, contacts$OtherNames, max.distance = 4)
    
 # both true when surname match with surname, or both true when surname match with OtherNames
 match =  (sur.sur * other.other) + (other.sur * sur.other)
   
-# inspect matches
+
+### inspect matches with other attributes ####
 case.match =  unique(which(match>=1, arr.ind=TRUE)[, 1])
 contact.match = unique(which(match>=1, arr.ind=TRUE)[, 2]) 
 
@@ -51,6 +78,7 @@ cat(length(case.match), 'cases matched at least one contact;',
 cases$WasContact = 0L
 contacts$BecameCase = 0L
 contacts$caseID = NA
+contacts$score = NA
 
 # select columns
 case.cols = c('ID', 'Surname','OtherNames', 'Age', 'Gender' , 'DistrictRes', 'SCRes', 'VillageRes', 
@@ -61,7 +89,9 @@ contact.cols = c('ID', 'Surname','OtherNames', 'Age', 'Gender' , 'District', 'Su
 
 # print all combos
 library(knitr)
-j = 0
+
+j = 0; k = 0
+
 for (i in 1:length(case.match)){
  
   case.index = case.match[i]
@@ -71,51 +101,68 @@ for (i in 1:length(case.match)){
 #   contact.index = which( match[ 808, ] > 0 )
   
   potential.contact.matches = contacts[ contact.index , contact.cols] %>%
-    mutate( incubation = potential.case.match$dateOnset - DateLastContact ,  
-            incubation.dist = ifelse( incubation >= -7 & incubation <= 31, TRUE, FALSE), 
+    mutate(  
+            incubation = as.Date(potential.case.match$dateOnset) - as.Date(DateLastContact)  ,  
+            incubation.dist = ifelse(is.na( incubation), TRUE, 
+                  ifelse( incubation >= -10 & incubation <= 31, TRUE, FALSE)) , 
             age.dist = ifelse( is.na(potential.case.match$Age) | is.na(Age), TRUE, 
-                               agrepl(potential.case.match$Age, Age)),
+                               agrepl(potential.case.match$Age, Age) ),
             district.dist = ifelse( is.na(potential.case.match$DistrictRes) | is.na(District), TRUE, 
-                                    agrepl(potential.case.match$DistrictRes, District)) ,
+                                    agrepl(potential.case.match$DistrictRes, District, ignore.case = TRUE)) ,
             SC.dist = ifelse( is.na(potential.case.match$SCRes) | is.na(SubCounty), TRUE, 
-                              agrepl(potential.case.match$SCRes, SubCounty) )
-            ) %>%
-            group_by(ID) %>%
-            mutate(
-              score = sum( c(incubation.dist, age.dist, district.dist, SC.dist), na.rm=TRUE)
+                              agrepl(potential.case.match$SCRes, SubCounty, ignore.case =  TRUE) ) ,
+            score = incubation.dist + age.dist + district.dist + SC.dist
             ) %>%
     arrange( -score ) %>% as.data.frame()
   
-  # write out all potential matches to manually reveiw
+
+# ASSEMMENT
+  j = j + 1
   if (nrow(potential.contact.matches) >=1 ){
+
+    # write out all potential matches to manually reveiw
 #     j = j + 1
 #     cat('\n\n **Match number',j, '**\n')
 #     print ( kable( potential.case.match ) )
 #     cat('contact:\n')
 #     print( kable( potential.contact.matches ) )
-
-  # tag contact as case is sufficienly close
-      potential.contact.matches %>%
-        filter( score >=3 )
-      if (nrow(potential.contact.matches) >=1 ){
-        # tag each case record that meets the match criterea (only one)
-        cases[ cases$ID %in% potential.case.match$ID , 'WasContact'] = 1]
+   
+    # tag each case record that meets the match criterea (only one)
+    max.score = max(potential.contact.matches$score, na.rm = TRUE)
+    
+    potential.contact.matches = potential.contact.matches %>% 
+      filter( district.dist ) %>%
+      filter( incubation.dist ) %>%
+      filter( score >= 3 & score == max.score) %>%
+      filter( !is.na(incubation) )
+    
+    if ( nrow(potential.contact.matches) >=1 ){
+      k = k + 1
+      
+        cases[ cases$ID %in% potential.case.match$ID , 'WasContact'] = 1
         # tag each contact record that meets match criteria (may be >1 if there were >1 source cases)
+
         for( ii in (1: nrow(potential.contact.matches) ) ){
               contacts[ contacts$ID %in% potential.contact.matches$ID , 'BecameCase'] = 1
+              contacts[ contacts$ID %in% potential.contact.matches$ID , 'score'] = potential.contact.matches$score
               contacts[ contacts$ID %in% potential.contact.matches$ID , 'caseID'] = potential.case.match$ID
       }
+      
+      # write out HIGH PROBABILITY potential matches to manually reveiw
+      cat('\n\n **Match number', k , '/', j, '**\n')
+      print ( kable( potential.case.match ) )
+      cat('contact:\n')
+      print( kable( potential.contact.matches ) )
     }
   }
 }
 
-#### keys
+#### keys  ####
 keys = data.frame(
-  #   contact = .contacts$ID[key.pairs[,1]],
-  #   case = .cases$ID[key.pairs[,2]]
-  contact = .contacts[.contacts$BecameCase == 1, 'ID'],
-  case = .contacts[.contacts$BecameCase == 1, 'caseID']
-)
+  caseID = contacts[ contacts$BecameCase == 1, 'caseID'] ,
+  contactID = contacts[ contacts$BecameCase == 1, 'ID'] ,
+  score = contacts[ contacts$BecameCase == 1, 'score']
+) %>% arrange(caseID, contactID, score)
 
 # manual de-match: no .contacts made match to this case
 # notMatch = keys[,'case'] %in% c('GUI-CKY-14-1590', 'GUI-CKY-14-1408', 'GUI-CKY-14-3751',
@@ -123,33 +170,6 @@ keys = data.frame(
 # keys$match = 1
 # keys[ notMatch, 'match' ] = 0
 
-keys = keys %>% 
-  #   filter( match == 1) %>%
-  inner_join(cases, by = c('case' = 'ID')) %>%
-  inner_join(.contacts[, c('ID', 'SourceCaseID', 'SourceCase')], by = c('contact' = 'ID')) 
-
-# Case-ContactName should refer to same person as contact's SourceCase
-# keys %>% select(case, contact, ContactName1, ContactName2 , SourceCase) %>% arrange(case)
-
-# edge list
-edges = keys %>%
-  mutate( source = SourceCaseID ) %>%
-  select (source, case)
-
-nodes = unique( c(edges[,1], edges[,2]))
-node.data = cases[ cases$ID %in% nodes, ] %>% select (ID, dateOnset, Age, DistrictRes, SCRes) %>%
-  mutate(week = week(dateOnset),
-         day = as.numeric(strftime(dateOnset, format = "%j"))
-  )
-
-# replace missing age with 35
-node.data[ is.na(node.data$Age), 'Age'] = 35
-
-# limit edges to thosse with node data (why some missing?  not confirmed source cases?)
-edges = edges %>% inner_join(node.data, by = c('source' = 'ID'))
-
-cky.keys = keys
-cky.edges = edges
-save(cky.keys, cky.edges, file='cky.keys.rda')
+save(keys, file='keys.rda')
 
 ```

@@ -9,7 +9,7 @@ output:
     latex_engine: xelatex
     number_sections: yes
     toc: yes
-
+  word_document: default
 header-includes:
 - \usepackage[section]{placeins}
 - \usepackage{setspace}
@@ -47,26 +47,37 @@ library(dplyr, quietly=TRUE) # order is important...
 # Ca
 # Data 
 
-- Data loaded from export of VHF database.^[export cases as .csv, then open and save file as excel]
+- Data loaded from export of VHF database.^[export cases as .csv]
 
 ```{r read}
 
 # In order for this import to work, must do 2 things first:
 # 1. Make sure Region settings (control panel) are set to English(UK)
-# 2. open csv file in excel, then save as an excel spreadsheet.
+# 2 export data to csv
 
-file.name = "guinea_cases_10_Nov"
-
+file.name = "cases"
 dir = 'fieldData/'  # folder, relative to this project, with spreadsheets
-
-# it still may be possible to read csv..
-# case_data =   read.csv( paste0(dir, file.name, '.csv'), header = TRUE, flush=TRUE )
+file = paste0(dir, file.name, '.csv') 
 
 # read from file saved as excel
-excel.file = paste0(dir, file.name, '.xlsx') 
-wb = loadWorkbook(excel.file)
-case_data =   readWorksheet(wb, file.name)
-  
+# excel.file = paste0(dir, file.name, '.xlsx') 
+# wb = loadWorkbook(excel.file)
+# case_data =   readWorksheet(wb, file.name)
+
+# Maenner
+x = readLines(file, skipNul=TRUE,encoding="UTF-16", n=-1L )
+# first line contains worthless string that must by skipped ("\xff\xfesep=,")
+case_data = read.csv(textConnection(x[-1]), header = TRUE, stringsAsFactors = FALSE)
+
+# convert character data to dates
+case_data = case_data %>% 
+  mutate(
+          DateIsolationCurrent = parse_date_time(DateIsolationCurrent, 'dmy_hms') ,
+          DateHospitalCurrentAdmit = parse_date_time(DateHospitalCurrentAdmit, 'dmy_hms'),
+          DateReport = parse_date_time(DateReport, 'dmy_hms'), 
+          DateOnset = parse_date_time(DateOnset, 'dmy_hms')
+          )
+
 # set report date as the most recent DateReport
 last.report.date = max(case_data$DateReport, na.rm=TRUE)
 current.week = week(last.report.date)
@@ -108,8 +119,7 @@ cases.guinea = case_data %>%
   mutate( EpiCaseDef = as.integer(EpiCaseDef)) %>%
   inner_join(epiCaseDef) %>%  
   mutate( 
-          dateOnset = 
-            date.ifelse( is.na(DateOnset), DateReport, DateOnset )
+          dateOnset = as.Date(date.ifelse( is.na(DateOnset), DateReport, DateOnset ) ) 
             , # use onset date if available; DateReport otherwise
           week = week(dateOnset)  ,
           # calculate periods based on week function, starting with day before current date
@@ -174,6 +184,9 @@ cases.guinea = case_data %>%
     cases.guinea[cases.guinea$DistrictRes %in% 'Forecariah', 'DistrictRes'] = 'Forécariah'
 
     cases.guinea[cases.guinea$DistrictRes %in% 'Dubreka', 'DistrictRes'] = 'Dubréka'
+
+    cases.guinea[cases.guinea$DistrictRes %in% 'Dubreka', 'DistrictRes'] = 'Dubréka'
+
 
 # save cases.guinea data
 save(cases.guinea, file='cases.guinea.rda')
@@ -398,6 +411,10 @@ country = "GIN"
      # fix name of capital in GADM file!
      regions[regions$DistrictRes == 'Conarky', 'DistrictRes'] = 'Conakry'
      regions[regions$Region == 'Conarky', 'Region'] = 'Conakry'
+
+    regions[regions$DistrictRes == 'Yamou', 'DistrictRes'] = 'Yomou'
+
+  
 
 save(regions, file = 'regions.rda')
      
@@ -933,7 +950,7 @@ paste( unique(O$HCWposition), collapse = ', ')
 ```{r isolation}
 
 # Time from onset to isolation
-data = cases %>% 
+data = cases.guinea %>% 
   select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, DistrictRes) %>%
   merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
   filter(DateIsolationCurrent > DateOnset ) %>%
@@ -944,7 +961,7 @@ g = ggplot(data, aes( month(DateOnset), daysToIso)) +
     scale_x_continuous('Month', breaks = c(1:12)) +
     scale_y_continuous('Days to Isolation', breaks = seq(0, 28, 2)) +
     geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
-    scale_colour_manual('Status', values = c("red", "green")) +
+    scale_colour_manual('Status', values = c('grey', "red", "green") ) +
     geom_boxplot( aes(group = month(DateOnset)) , outlier.shape = NA, fill = NA) 
 g
 ```
@@ -958,7 +975,7 @@ g + facet_grid( Region ~ .)
 ```{r noIso}
 
 # Time from onset to isolation
-data = cases %>% 
+data = cases.guinea %>% 
   select( DateOnset, DateIsolationCurrent, StatusReport, DistrictRes) %>%
   merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
   filter(DateIsolationCurrent > DateOnset ) %>%
