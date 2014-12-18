@@ -114,44 +114,6 @@ When Ebola symptoms are identified in a person, a public health alert is trigger
 
 To stop disease transmission, information regarding contacts was obtained by for all identified Ebola patients. For hospitalized patients, this information was collected by Donka ETC staff.  The Guinean MoH is responsible for the contact tracing throughout the country. CDC and WHO provide provide training and support.  Community agents visit identified contacts daily for fever and symptom checks for 21 days after last exposure to a EVD case.  Community agent supervisors spot check with random visits to contact families, fill in and report the contact tracing forms daily, and have biweekly meetings to respond to challenges.Contacts were systematically monitored for symptoms for 21 days (i.e., wellness checks and temperature monitoring daily); any contact demonstrating Ebola symptoms was placed in isolation, tested for the virus, and asked about their contacts. If a contact did not have any symptoms after 21 days, the contact was considered no longer monitored. Contact tracing teams and field supervisors were responsible for the prompt and full implementation of contact tracing activities, and the contact tracing process repeated with each newly identified patient until no new cases occur. Contact tracing information was sent to WHO/MoH to update information in a national database.  The number of contacts reported to the national VHF database with date of last exposure in Sepember and October, 2014 was 2,990 for Conakry and only 51 for Kindia. (Figure 2.)
 
-
-```{r epicurveContacts, fig.cap='Weekly EVD Case Count in Conakry and Kindia, Guinee, September-October, 2014'}
-
-load('contacts.rda') # see cky_case_contacts.Rmd
-  
-SeptemberOctober = new_interval(ymd('2014-SEP-01'), ymd('2014-OCT-31') )
-
-load('regions.rda')
-Region = regions %>%  # table includes Region, DistrictRes, SCRes
-  select(-SCRes) %>% # remove SCRes
-  unique()
-
-d = contacts %>% 
-  merge(Region, all.x = TRUE, by.x= 'District', by.y ='DistrictRes' ) %>%
-  filter(Region %in% c('Conakry', 'Kindia') ) %>%
-  filter(DateLastContact %within% SeptemberOctober ) %>% 
-  mutate( 
-    interval = week(DateLastContact),
-          period = as.Date(floor_date(DateLastContact, "week"))
-    ) 
-  
-d %>%
-  arrange(DateLastContact) %>%
-  group_by( Region, period ) %>%
-  summarize( freq = n() ) %>%  
-  ggplot( aes(x = period , y = freq, fill = Region) ) +
-  geom_bar( stat = 'identity', color = 'white') +
-  scale_x_date('Week', labels = date_format("%b-%d"),
-               breaks = date_breaks("week")) +
-  scale_fill_brewer('', palette="Set3", guide=FALSE) +
-  ylab('Contacts') + 
-  theme(axis.text.x = element_text(angle = 90, hjust = 1) ) +
-#   scale_fill_manual(values = c('red', 'blue', 'yellow')) +
-  facet_grid( Region ~ .)
-
-
-```
-
 ## Patient and Contact Information Flow
 
 A case notifications form, including demographic, clinical, epidemiologic, and laboratory information, was completed at the Donka ETC for all patients, including suspect, probable and laboratory-confirmed. Data collected on the form are entered into an Excel® (Microsoft Corp., Redmond, Washington) spreadsheet by the ETC staff and sent every evening to the World Health Organization (WHO) and Guinean Ministry of Health (MoH). Data sent from the two Guinean ETCs (i.e., Conakry and Guéckedou) were entered into the Epi Info™ (CDC, Atlanta, Georgia) viral hemorrhagic fever (VHF) national database and analyzed daily. To update case-reports when new laboratory results or patient status (e.g. died, or discharged) became available, MSF sent an updated spreadsheet by e-mail to WHO/MoH.
@@ -160,336 +122,7 @@ A case notifications form, including demographic, clinical, epidemiologic, and l
 
 To identify cases who were known contacts, we linked records for cases and contacts entered into the national VHF database.  Linkage was performed by cross-checking first and last name, age, and addresses (region, district, sub-district, and village). Names were matched using a probabalistic algorithm that ranked matches according to the number of chracter or digits that would need to be changed in order to create an exact match.  We considered a difference of 3 or less characters in names and locations, and 1 or less character in the age, as a potential match.  Potential matches with illness onset before the contact's reported exposure were excluded.  
 
-
-
-```{r epicurvecaseswerecontacts, fig.height=8, fig.width=6.5, fig.cap='Epicurve of cases and known contacts who became cases (colored boxes), Conakry.'}
-
-substrRight <- function(x, n){
-  substr(x, nchar(x)-n+1, nchar(x))
-}
-
-load('keys.rda')
-load('cases.guinea.rda')
-load('contacts.guinea.rda')
-cases = cases.guinea
-contacts = contacts.guinea
-
-# select columns that will be used for display
-case.cols = c('ID', 'Surname','OtherNames', 'Age', 'Gender' , 
-              'DistrictRes', 'SCRes', 'VillageRes', 
-              'DateOnset', 'dateOnset', 'ContactName1', 'ContactName2')
-
-contact.cols = c('ID', 'DateLastContact', 'SourceCase', 'SourceCaseID', 
-                 'HeadHousehold', 'RelationshipToCase')
-
-edges = keys %>% 
-  inner_join(cases[, case.cols], by = c('caseID' = 'ID')) %>%  # excludes non-cases
-  inner_join(contacts[, contact.cols], by = c('contactID' = 'ID')) %>% 
-  merge(Region, all.x = TRUE, by ='DistrictRes' ) %>%
-  rename( caseRegion = Region,
-          caseDistrict = DistrictRes,
-          caseSC = SCRes ,
-          case = caseID , 
-          source = SourceCaseID ,
-          RelationshipToSource = RelationshipToCase 
-          ) %>% 
-  select( source, case , score, Age, Gender, 
-          caseDistrict, caseSC, VillageRes, 
-          dateOnset, DateOnset, HeadHousehold, RelationshipToSource) %>%
-  unique()  # may have multiple edeges because of duplicate contacts
-  
-# optional, filter to a  source case
-# edges = edges %>% filter(source %in% sourceID) %>% arrange(case, score)}
-
-sourceCases = edges %>% 
-  select(source) %>% unique() %>% 
-  left_join( cases , by = c('source' = 'ID' )) %>%
-  merge(Region, all.x = TRUE, by ='DistrictRes' ) %>%
-  rename(sourceDistrict = DistrictRes,
-         sourceRegion = Region,
-         sourceSCRes = SCRes )
-#   mutate( sourceSCRes = toupper(sourceSCRes) )%>%
-#   select( source, sourceSCRes)  
-
-sourceCases[is.na(sourceCases$sourceSCRes) | 
-              sourceCases$sourceSCRes %in% '', 'sourceSCRes'] = 'Unknown'
-
-sourceCases[is.na(sourceCases$sourceDistrict) | 
-              sourceCases$sourceDistrict %in% '', 'sourceDistrict'] = 'Unknown'
-
-conakry.districts = c('DIXINN','KALOUM' ,'MATAM', 'MATOTO', 'RATOMA')
-notConakry = !( toupper(sourceCases$sourceSCRes) ) %in% conakry.districts
-notMissing = !( sourceCases$sourceSCRes %in% 'Unknown')
-sourceCases[ notConakry &  notMissing, 'sourceSCRes'] = ' OUTSIDE CONAKRY'
-
-sourceCases %>% count(sourceSCRes)
-
-d = data.cky %>% 
-  left_join( edges %>% select(case, source), by = c('ID'= 'case')) %>%
-  left_join(sourceCases[, c('source', 'sourceDistrict', 'sourceSCRes', 'sourceRegion')], 
-            by = 'source') %>%
-  mutate( idnum = substrRight(source, 4),
-          period = as.Date(floor_date(dateOnset, "week"))
-#           SCRes = ifelse(is.na(SCRes) | SCRes %in% '', 
-#                          "Unkown", toupper(SCRes)) , 
-#           sourceSCRes = ifelse(is.na(sourceSCRes) | sourceSCRes %in% '', 
-#                                " Unkown", toupper(sourceSCRes))
-          ) %>% 
-  group_by( period, DistrictRes, ID ) %>%
-  summarize( freq = 1 ,
-             idnum = idnum,
-             sourceDistrict = sourceDistrict ,
-             sourceRegion = sourceRegion, 
-             sourceSCRes = sourceSCRes) %>%
-  mutate( cumsum = cumsum(freq),
-          midpoint = (cumsum(freq) - 0.5 * freq)) %>%
-  arrange(DistrictRes, period, sourceDistrict)
-
-# png('epicurve_secondary_cases.png', height = 7, width = 9.5, units = 'in', res=200)
-# g
-# dev.off()
-```
-
-```{r eppicurveKnownContactsDistrict}
-data.cky.kin = data %>% filter( Region %in% c('Conakry', 'Kindia') )%>% 
-  filter(dateOnset %within% SeptemberOctober ) 
-
-
-g = 
-  data.cky %>% 
-  left_join( edges %>% select(case, source), by = c('ID'= 'case')) %>%
-  left_join(sourceCases[, c('source', 'sourceDistrict', 'sourceSCRes', 'sourceRegion')], 
-            by = 'source') %>%
-  mutate( idnum = substrRight(source, 4),
-          period = as.Date(floor_date(dateOnset, "week"))
-#           SCRes = ifelse(is.na(SCRes) | SCRes %in% '', 
-#                          "Unkown", toupper(SCRes)) , 
-#           sourceSCRes = ifelse(is.na(sourceSCRes) | sourceSCRes %in% '', 
-#                                " Unkown", toupper(sourceSCRes))
-          ) %>% 
-  group_by( period, DistrictRes, ID ) %>%
-  summarize( freq = 1 ,
-             idnum = idnum,
-             sourceDistrict = sourceDistrict ,
-             sourceRegion = sourceRegion, 
-             sourceSCRes = sourceSCRes) %>%
-  mutate( cumsum = cumsum(freq),
-          midpoint = (cumsum(freq) - 0.5 * freq)) %>%
-  arrange(DistrictRes, period, sourceDistrict) %>%
-  ## plot
-  ggplot( aes(x = period , y = freq) ) +
-  geom_bar( stat = 'identity', aes( fill=sourceDistrict), color= 'black' ) +
-#   scale_fill_manual('District of Source Cases:', values = c('DIXINN' = 'red',
-#                                                    'KALOUM' = 'green',
-#                                                    'MATOTO' = 'blue',
-#                                                    'MATAM' = 'yellow',
-#                                                    'RATOMA' = 'purple',
-#                                                    'Unknown' = 'black',
-#                                                    ' Outside of Conakry ' = 'orange',
-#                                                    ' Not a Known Contact' = 'white'
-#                                                    ) 
-#                     ) + 
-#   scale_color_manual('Case from:', values = c('DIXINN' = 'red',
-#                                                    'KALOUM' = 'green',
-#                                                    'MATOTO' = 'blue',
-#                                                    'MATAM' = 'yellow',
-#                                                    'RATOMA' = 'purple',
-#                                                    'Not reported' = 'grey'
-#                                                    ) 
-#                      ) + 
-#   geom_text( aes(y = midpoint, ymax=midpoint, label = idnum), size = 2, hjust=0.5) +
-  scale_x_date('Week beginning', labels = date_format("%b-%d"),
-               breaks = date_breaks("week")) +
-  scale_y_continuous('Cases', labels = comma, breaks = seq(2,24,2) ) + 
-  theme(axis.text.x = element_text(angle = 90, hjust = 2),
-       legend.position = 'right' ) +
-  facet_grid(DistrictRes ~ .)
-g
-```
-
-
-```{r eppicurveKnownContactsSC}
-g = 
-  data.cky %>% 
-  left_join( edges %>% select(case, source), by = c('ID'= 'case')) %>%
-  left_join(sourceCases[, c('source', 'sourceDistrict', 'sourceSCRes', 'sourceRegion')], 
-            by = 'source') %>%
-  mutate( idnum = substrRight(source, 4),
-          period = as.Date(floor_date(dateOnset, "week")),
-          SCRes = toupper(SCRes)
-          ) %>% 
-  group_by( period, DistrictRes, SCRes, ID ) %>%
-  summarize( freq = 1 ,
-             idnum = idnum,
-             sourceDistrict = sourceDistrict ,
-             sourceRegion = sourceRegion, 
-             sourceSCRes = sourceSCRes) %>%
-  mutate( cumsum = cumsum(freq),
-          midpoint = (cumsum(freq) - 0.5 * freq),
-          sourceSCRes = toupper(sourceSCRes)) %>%
-  arrange(DistrictRes, SCRes, period, sourceDistrict, sourceSCRes) %>%
-  ## plot
-  ggplot( aes(x = period , y = freq) ) +
-  geom_bar( stat = 'identity', aes( fill=sourceSCRes), color= 'black' ) +
-  scale_fill_manual('District of Source Cases:', values = c('DIXINN' = 'red',
-                                                   'KALOUM' = 'green',
-                                                   'MATOTO' = 'blue',
-                                                   'MATAM' = 'yellow',
-                                                   'RATOMA' = 'purple',
-                                                   'UNKNOWN' = 'black',
-                                                   ' OUTSIDE CONAKRY' = 'orange',
-                                                   ' Not a Known Contact' = 'white'
-                                                   ) 
-                    ) + 
-#   scale_color_manual('Case from:', values = c('DIXINN' = 'red',
-#                                                    'KALOUM' = 'green',
-#                                                    'MATOTO' = 'blue',
-#                                                    'MATAM' = 'yellow',
-#                                                    'RATOMA' = 'purple',
-#                                                    'Not reported' = 'grey'
-#                                                    ) 
-#                      ) + 
-#   geom_text( aes(y = midpoint, ymax=midpoint, label = idnum), size = 2, hjust=0.5) +
-  scale_x_date('Week beginning', labels = date_format("%b-%d"),
-               breaks = date_breaks("week")) +
-  scale_y_continuous('Cases', labels = comma, breaks = seq(2,24,2) ) + 
-  theme(axis.text.x = element_text(angle = 90, hjust = 2),
-       legend.position = 'right' ) +
-  facet_grid(SCRes ~ .)
-g
-```
-
-
-```{r epicurvecaseswerecontacts_Kin, fig.height=8, fig.width=6.5, fig.cap='Epicurve of cases and known contacts who became cases (colored boxes), Kindia.', include=FALSE}
-
-substrRight <- function(x, n){
-  substr(x, nchar(x)-n+1, nchar(x))
-} 
-
-load('kin.keys.rda')
-keys = kin.keys
-
-# select one key pair for each case; one pair for each contact
-key. = keys %>% 
-  group_by(case) %>% filter(row_number(contact)==1) %>%
-  group_by(contact) %>% filter(row_number(case)==1) %>% as.data.frame()
-
-sourceCases = key. %>% select(SourceCaseID) %>%
-  left_join( data , by = c('SourceCaseID' = 'ID' )) %>%
-  merge(Region, all.x = TRUE, by.x= 'District', by.y ='DistrictRes' ) %>%
-  rename(sourceSCRes = SCRes) %>%
-  select( SourceCaseID, sourceSCRes) %>% unique() 
-
-sourceCases[is.na(sourceCases$sourceSCRes) | 
-              sourceCases$sourceSCRes %in% '', 'sourceSCRes'] = 'Missing'
-conakry.districts = c('DIXINN','KALOUM' ,'MATAM', 'MATOTO', 'RATOMA')
-notConakry = !( toupper(sourceCases$sourceSCRes) ) %in% conakry.districts
-notMissing = !( sourceCases$sourceSCRes %in% 'Location missing')
-sourceCases[ notConakry &  notMissing, 'sourceSCRes'] = 'Other'
-
-g = 
-  data.kindia %>% 
-  left_join( key. %>% select(case, SourceCaseID), by = c('ID'= 'case')) %>%
-  left_join(sourceCases) %>%
-  mutate( idnum = substrRight(SourceCaseID, 4),
-          period = as.Date(floor_date(dateOnset, "week")),
-          SCRes = ifelse(is.na(SCRes) | SCRes %in% '', 
-                         "LOCATION NOT REPORTED", toupper(SCRes)) , 
-          sourceSCRes = ifelse(is.na(sourceSCRes) | sourceSCRes %in% '', 
-                               "Not a Known Contact", toupper(sourceSCRes))
-          ) %>% 
-  group_by( period, SCRes, ID ) %>%
-  summarize( freq = n() ,
-             idnum = idnum,
-             sourceSCRes = sourceSCRes) %>%
-  mutate( cumsum = cumsum(freq),
-          midpoint = (cumsum(freq) - 0.5 * freq)) %>%
-  ## plot
-  ggplot( aes(x = period , y = freq) ) +
-  geom_bar( stat = 'identity', aes( fill=sourceSCRes), color= 'black' ) +
-  scale_fill_manual('Source Case from:', values = c('DIXINN' = 'red',
-                                                   'KALOUM' = 'green',
-                                                   'MATOTO' = 'blue',
-                                                   'MATAM' = 'yellow',
-                                                   'RATOMA' = 'purple',
-                                                   'LOCATION NOT REPORTED' = 'black',
-                                                   'OTHER' = 'orange',
-                                                   'Not a Known Contact' = 'white'
-                                                   ) 
-                    ) + 
-#   geom_text( aes(y = midpoint, ymax=midpoint, label = idnum), size = 2, hjust=0.5) +
-  scale_x_date('Week beginning', labels = date_format("%b-%d"),
-               breaks = date_breaks("week")) +
-  scale_y_continuous('Cases', labels = comma, breaks = seq(2,26, by=2) ) + 
-  theme(axis.text.x = element_text(angle = 90, hjust = 2),
-       legend.position = 'right' ) 
-g
-
-# png('epicurve_secondary_cases.png', height = 7, width = 9.5, units = 'in', res=200)
-# g
-# dev.off()
-```
-
 The number of cases who were known contacts was 35 (`r percent(35/134)`) of 134 total cases in Conakry during September and October, 2014.  During the same period in the five districts of Conakry, the percentage of cases who were known contacts was 42% (5 of 12) in Dixinn, 9% (2 of 23) in Kaloum, 23% (3 of 13) in Matam, 17% (8 of 47) in Matoto, and 31% (11 of 36) in Ratoma (Figure 4). Additionally, we 16% (6 of 38) of cases were known contacts but were missing address data ('Unknown').     
-
-```{r percentcaseswerecontacts, fig.height=4, fig.width=6.5, fig.cap='Epicurve of cases and known contacts who became cases (colored boxes), Conakry.'}
-
-substrRight <- function(x, n){
-  substr(x, nchar(x)-n+1, nchar(x))
-}
-
-load('keys.rda')
-
-# select one key pair for each case; one pair for each contact
-key. = keys %>% 
-  group_by(case) %>% filter(row_number(contact)==1) %>%
-  group_by(contact) %>% filter(row_number(case)==1) %>% as.data.frame()
-
-sourceCases = key. %>% select(SourceCaseID) %>%
-  left_join( data , by = c('SourceCaseID' = 'ID' )) %>%
-  rename(sourceSCRes = SCRes) %>%
-  select( SourceCaseID, sourceSCRes) %>% unique() 
-
-sourceCases[is.na(sourceCases$sourceSCRes) | 
-              sourceCases$sourceSCRes %in% '', 'sourceSCRes'] = 'Missing'
-conakry.districts = c('DIXINN','KALOUM' ,'MATAM', 'MATOTO', 'RATOMA')
-notConakry = !( toupper(sourceCases$sourceSCRes) ) %in% conakry.districts
-notMissing = !( sourceCases$sourceSCRes %in% 'Location missing')
-sourceCases[ notConakry &  notMissing, 'sourceSCRes'] = 'Other'
-
-g = 
-  data.cky %>% 
-  left_join( key. %>% select(case, SourceCaseID), by = c('ID'= 'case')) %>%
-  left_join(sourceCases) %>%
-  mutate( idnum = substrRight(SourceCaseID, 4),
-          period = as.Date(floor_date(dateOnset, "week")),
-          SCRes = ifelse(is.na(SCRes) | SCRes %in% '', 
-                         "UNKNOWN", toupper(SCRes)) , 
-          sourceSCRes = ifelse(is.na(sourceSCRes) | sourceSCRes %in% '', 
-                               "Not a Known Contact", toupper(sourceSCRes))
-          ) %>% 
-  group_by( period ) %>%
-  summarize( freq = n() ,
-             followed = sum(ifelse( !is.na(idnum), 1, 0) / freq)
-             ) %>%
-  mutate( cumsum = cumsum(freq),
-          midpoint = (cumsum(freq) - 0.5 * freq)) %>%
-  ## plot
-  ggplot( aes(x = period , y = followed) ) +
-  geom_bar( stat = 'identity', aes( fill= followed ), color= 'black' ) +
-#   geom_text( aes(y = midpoint, ymax=midpoint, label = idnum), size = 2, hjust=0.5) +
-  scale_x_date('Week beginning', labels = date_format("%b-%d"),
-               breaks = date_breaks("week")) +
-  scale_y_continuous('Cases', labels = comma, breaks = seq(0,1,.1)) + 
-  theme(axis.text.x = element_text(angle = 90, hjust = 2),
-       legend.position = 'right' ) 
-g
-
-# png('epicurve_secondary_cases.png', height = 7, width = 9.5, units = 'in', res=200)
-# g
-# dev.off()
-```
-
 
 ```{r sourcCases}
 load('keys.rda')
@@ -851,6 +484,7 @@ Case investigation forms provide details of possible sources of transmission to 
 
 Contact tracing has been successful in interrupting transmission of EVD in Senegal and Nigeria.^[reference senegal and nigeria...].  However, those two countries had a relatively small number of EVD cases and contacts. Scaling contact tracing operations to a larger outbreak is logistically challenging. In September and October, contact tracing teams were hampered by transportation problems.  It was frequently reported that contact tracers had not recieved pay and were nonetheless using personal funds to purchase gas inorder to make the daily visits to contacts across the city.  These anectdotes highlights the number of persons committed to effective public health practice.  Efforts to create a system with effective and timely support for contact tracing is ongoing, and novel methods may be needed. Contact tracing teams critical to control of outbreak and should be strengthened.
 
+# Figures
 
 ```{r case_counts}
 
@@ -881,7 +515,8 @@ kable( comma(y), align = c('l', rep('r', ncol(y)-1)), caption = 'New EVD cases i
 
 # data.kindia %>%  count(DistrictRes, ParishRes, SCRes, VillageRes)
   
-cky.kin = data %>% filter(Region %in% c('Conakry', 'Kindia') )
+gtr.cky = data %>% filter(DistrictRes %in% c('Conakry', 'Coyah', 'Forécariah', 'Dubréka') )
+cky = data %>% filter(Region %in% c('Conakry') )
 
 # facet by region; fill by prefecture
 # SClevels = unique(toupper(cky.kin[order(cky$Region, cky$SCRes), 'SCRes']))
@@ -890,22 +525,487 @@ cky.kin = data %>% filter(Region %in% c('Conakry', 'Kindia') )
 #   mutate( 
 #     SCRes = factor( toupper(SCRes), levels = SClevels) )
   
-cky.kin %>%
+cky %>%
   filter(dateOnset %within% SeptemberOctober ) %>% 
   arrange(dateOnset) %>%
   mutate( interval = week(dateOnset),
           period = as.Date(floor_date(dateOnset, "week")) ) %>%  # set time period
-  group_by( Region, period ) %>%
+  group_by( DistrictRes, period, ID ) %>%
   summarize( freq = n() ) %>%  
-  ggplot( aes(x = period , y = freq, fill = Region) ) +
-  geom_bar( stat = 'identity', color = 'white') +
+  ggplot( aes(x = period , y = freq, fill = DistrictRes) ) +
+  geom_bar( stat = 'identity',fill = 'grey50', color = 'black') +
   scale_x_date('Week', labels = date_format("%b-%d"),
                breaks = date_breaks("week")) +
   scale_fill_brewer('', palette="Set3", guide=FALSE) +
   ylab('Cases') + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1) ) 
+# +
+# #   scale_fill_manual(values = c('red', 'blue', 'yellow')) +
+#   facet_grid( DistrictRes ~ .)
+
+ggsave('caseEpiCurve.png', width = 6.5, height = 3.5, units = 'in')
+
+```
+
+```{r epicurveContacts, fig.cap='Weekly EVD Case Count in Conakry and Kindia, Guinee, September-October, 2014'}
+
+load('contacts.rda') # see cky_case_contacts.Rmd
+  
+SeptemberOctober = new_interval(ymd('2014-SEP-01'), ymd('2014-OCT-31') )
+
+load('regions.rda')
+Region = regions %>%  # table includes Region, DistrictRes, SCRes
+  select(-SCRes) %>% # remove SCRes
+  unique()
+
+d = contacts %>% 
+  merge(Region, all.x = TRUE, by.x= 'District', by.y ='DistrictRes' ) %>%
+#   filter(Region %in% c('Conakry', 'Kindia') ) %>%
+  filter(DateLastContact %within% SeptemberOctober ) %>% 
+  mutate( 
+    interval = week(DateLastContact),
+          period = as.Date(floor_date(DateLastContact, "week"))
+    )
+
+# d = contacts %>% 
+#   merge(Region, all.x = TRUE, by.x= 'District', by.y ='DistrictRes' ) %>%
+#   filter(District %in% c('Conakry', 'Coyah', 'Forécariah', 'Dubréka') ) %>%
+#   filter(DateLastContact %within% SeptemberOctober ) %>% 
+#   mutate( 
+#     interval = week(DateLastContact),
+#           period = as.Date(floor_date(DateLastContact, "week"))
+#     ) 
+
+
+d %>%
+  mutate( place = ifelse(District %in% 'Conakry', 'Conakry', 'Other District') ) %>%
+  group_by( place, period , ID) %>%
+  summarize( freq = n() ) %>%  
+  ggplot( aes(x = period , y = freq, fill = District) ) +
+  geom_bar( stat = 'identity',  aes(fill = place)) +
+  scale_x_date('Week', labels = date_format("%b-%d"),
+               breaks = date_breaks("week")) +
+  scale_fill_manual('', values = c('Conakry' = 'blue', 'Other District'= 'brown'), guide=FALSE) +
+  ylab('Contacts') + 
+  theme_bw() + 
   theme(axis.text.x = element_text(angle = 90, hjust = 1) ) +
-#   scale_fill_manual(values = c('red', 'blue', 'yellow')) +
-  facet_grid( Region ~ .)
+# #   scale_fill_manual(values = c('red', 'blue', 'yellow')) +
+  facet_grid( place ~ .)
+
+ggsave('contactEpiCurve.png', width = 6.5, height = 3.5, units = 'in')
+
+```
+
+```{r caseswerecontacts, fig.height=8, fig.width=6.5, fig.cap='Epicurve of cases and known contacts who became cases (colored boxes), Conakry.'}
+
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+}
+
+load('keys.rda')
+load('cases.guinea.rda')
+load('contacts.guinea.rda')
+cases = cases.guinea
+contacts = contacts.guinea
+
+# select columns that will be used for display
+case.cols = c('ID', 'Surname','OtherNames', 'Age', 'Gender' , 
+              'DistrictRes', 'SCRes', 'VillageRes', 
+              'DateOnset', 'dateOnset', 'ContactName1', 'ContactName2')
+
+contact.cols = c('ID', 'DateLastContact', 'SourceCase', 'SourceCaseID', 
+                 'HeadHousehold', 'RelationshipToCase')
+
+edges = keys %>% 
+  inner_join(cases[, case.cols], by = c('caseID' = 'ID')) %>%  # excludes non-cases
+  inner_join(contacts[, contact.cols], by = c('contactID' = 'ID')) %>% 
+  merge(Region, all.x = TRUE, by ='DistrictRes' ) %>%
+  rename( caseRegion = Region,
+          caseDistrict = DistrictRes,
+          caseSC = SCRes ,
+          case = caseID , 
+          source = SourceCaseID ,
+          RelationshipToSource = RelationshipToCase 
+          ) %>% 
+  select( source, case , score, Age, Gender, 
+          caseDistrict, caseSC, VillageRes, 
+          dateOnset, DateOnset, HeadHousehold, RelationshipToSource) %>%
+  unique()  # may have multiple edeges because of duplicate contacts
+  
+# optional, filter to a  source case
+# edges = edges %>% filter(source %in% sourceID) %>% arrange(case, score)}
+
+sourceCases = edges %>% 
+  select(source) %>% unique() %>% 
+  left_join( cases , by = c('source' = 'ID' )) %>%
+  merge(Region, all.x = TRUE, by ='DistrictRes' ) %>%
+  rename(sourceDistrict = DistrictRes,
+         sourceRegion = Region,
+         sourceSCRes = SCRes )
+#   mutate( sourceSCRes = toupper(sourceSCRes) )%>%
+#   select( source, sourceSCRes)  
+
+sourceCases[is.na(sourceCases$sourceSCRes) | 
+              sourceCases$sourceSCRes %in% '', 'sourceSCRes'] = 'Unknown'
+
+sourceCases[is.na(sourceCases$sourceDistrict) | 
+              sourceCases$sourceDistrict %in% '', 'sourceDistrict'] = 'Unknown'
+
+conakry.districts = c('DIXINN','KALOUM' ,'MATAM', 'MATOTO', 'RATOMA')
+notConakry = !( toupper(sourceCases$sourceSCRes) ) %in% conakry.districts
+notMissing = !( sourceCases$sourceSCRes %in% 'Unknown')
+sourceCases[ notConakry &  notMissing, 'sourceSCRes'] = ' OUTSIDE CONAKRY'
+
+sourceCases %>% count(sourceSCRes)
+
+d = data.cky %>% 
+  left_join( edges %>% select(case, source), by = c('ID'= 'case')) %>%
+  left_join(sourceCases[, c('source', 'sourceDistrict', 'sourceSCRes', 'sourceRegion')], 
+            by = 'source') %>%
+  mutate( idnum = substrRight(source, 4),
+          period = as.Date(floor_date(dateOnset, "week"))
+#           SCRes = ifelse(is.na(SCRes) | SCRes %in% '', 
+#                          "Unkown", toupper(SCRes)) , 
+#           sourceSCRes = ifelse(is.na(sourceSCRes) | sourceSCRes %in% '', 
+#                                " Unkown", toupper(sourceSCRes))
+          ) %>% 
+  group_by( period, DistrictRes, ID ) %>%
+  summarize( freq = 1 ,
+             idnum = idnum,
+             sourceDistrict = sourceDistrict ,
+             sourceRegion = sourceRegion, 
+             sourceSCRes = sourceSCRes) %>%
+  mutate( cumsum = cumsum(freq),
+          midpoint = (cumsum(freq) - 0.5 * freq)) %>%
+  arrange(DistrictRes, period, sourceDistrict)
+
+# png('epicurve_secondary_cases.png', height = 7, width = 9.5, units = 'in', res=200)
+# g
+# dev.off()
+```
+
+```{r eppicurveKnownContacts}
+data.cky.kin = data %>% filter( Region %in% c('Conakry', 'Kindia') )%>% 
+  filter(dateOnset %within% SeptemberOctober ) 
+
+
+g1 = 
+  d %>% 
+  mutate( sourceRegion = ifelse(is.na(sourceRegion), 'Source case unidentified', 
+                                ifelse(sourceRegion %in% 'Conakry', 'Conakry', 'Other')
+                                ) 
+          ) %>% 
+  arrange( sourceRegion) %>%
+  ## plot
+  ggplot( aes(x = period , y = freq) ) +
+  geom_bar( stat = 'identity', aes( fill=sourceRegion), color= 'black' ) +
+  scale_fill_manual('District of Source Cases:', 
+                    values = c('Conakry' = 'grey30',
+                               'Other' = 'red',
+                               'Source case unidentified' = 'grey90'
+                                                   ) 
+                    ) + 
+#   scale_color_manual('Case from:', values = c('DIXINN' = 'red',
+#                                                    'KALOUM' = 'green',
+#                                                    'MATOTO' = 'blue',
+#                                                    'MATAM' = 'yellow',
+#                                                    'RATOMA' = 'purple',
+#                                                    'Not reported' = 'grey',
+#                                                    ) 
+#                      ) + 
+#   geom_text( aes(y = midpoint, ymax=midpoint, label = idnum), size = 2, hjust=0.5) +
+#   scale_fill_discrete('District of Source Case:') + 
+  scale_x_date('Week beginning', labels = date_format("%b-%d"),
+               breaks = date_breaks("week")) +
+  scale_y_continuous('Cases', labels = comma, breaks = seq(2,24,2) ) + 
+  theme_bw() + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 2),
+       legend.position = 'bottom' ) 
+# +
+#   facet_grid(DistrictRes ~ .)
+g1
+
+ggsave('caseContactEpiCurve.png', g1, width = 10, height = 5.5, units = 'in')
+```
+
+
+```{r percentcaseswerecontacts, fig.height=4, fig.width=6.5, fig.cap='Epicurve of cases and known contacts who became cases (colored boxes), Conakry.'}
+
+g2 = 
+   d %>% 
+  mutate( known = ifelse(is.na(sourceRegion), 0, 1)) %>% 
+  group_by( period ) %>%
+  summarize( freq = n() ,
+             followed = sum(known) / freq
+             ) %>%
+  ## plot
+  ggplot( aes(x = period , y = followed) ) +
+  geom_point( color= 'black', size= 4 ) +
+  geom_line() + 
+#   geom_text( aes(y = midpoint, ymax=midpoint, label = idnum), size = 2, hjust=0.5) +
+  scale_x_date('Week beginning', labels = date_format("%b-%d"),
+               breaks = date_breaks("week")) +
+  scale_y_continuous('% Cases', labels = percent, breaks = seq(0,1,.25), limits = c(0,1)) + 
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 2),
+       legend.position = 'top' ) 
+g2
+
+ggsave('percentFollowed.png', g2, width = 10, height = 4.5, units = 'in')
+```
+
+```{r eppicurveKnownContactsSC, eval=FALSE}
+d = 
+  data.cky %>% 
+  left_join( edges %>% select(case, source), by = c('ID'= 'case')) %>%
+  left_join(sourceCases[, c('source', 'sourceDistrict', 'sourceSCRes', 'sourceRegion')], 
+            by = 'source') %>%
+  mutate( idnum = substrRight(source, 4),
+          period = as.Date(floor_date(dateOnset, "week")),
+          SCRes = toupper(SCRes),
+          sourceRegion = ifelse(is.na(sourceRegion), 'Source case unidentified', 
+                                ifelse(sourceRegion %in% 'Conakry', 'Conakry', 'Other')
+          ) ) %>% 
+  group_by( period, DistrictRes, SCRes, ID ) %>%
+  summarize( freq = 1 ,
+             idnum = idnum,
+             sourceDistrict = sourceDistrict ,
+             sourceRegion = sourceRegion, 
+             sourceSCRes = sourceSCRes) %>%
+  mutate( cumsum = cumsum(freq),
+          midpoint = (cumsum(freq) - 0.5 * freq),
+          sourceSCRes = toupper(sourceSCRes)) %>%
+  arrange(DistrictRes, SCRes, period, sourceDistrict, sourceSCRes) 
+
+d %>% group_by(SCRes, sourceRegion) %>% summarise( n = n())
+
+g = d %>%
+  ## plot
+  ggplot( aes(x = period , y = freq) ) +
+  geom_bar( stat = 'identity', aes( fill=sourceSCRes), color= 'black' ) +
+  scale_fill_manual('District of Source Cases:', values = c('DIXINN' = 'red',
+                                                   'KALOUM' = 'green',
+                                                   'MATOTO' = 'blue',
+                                                   'MATAM' = 'yellow',
+                                                   'RATOMA' = 'purple',
+                                                   'UNKNOWN' = 'black',
+                                                   ' OUTSIDE CONAKRY' = 'orange',
+                                                   ' Not a Known Contact' = 'white'
+                                                   ) 
+                    ) + 
+#   scale_color_manual('Case from:', values = c('DIXINN' = 'red',
+#                                                    'KALOUM' = 'green',
+#                                                    'MATOTO' = 'blue',
+#                                                    'MATAM' = 'yellow',
+#                                                    'RATOMA' = 'purple',
+#                                                    'Not reported' = 'grey'
+#                                                    ) 
+#                      ) + 
+#   geom_text( aes(y = midpoint, ymax=midpoint, label = idnum), size = 2, hjust=0.5) +
+  scale_x_date('Week beginning', labels = date_format("%b-%d"),
+               breaks = date_breaks("week")) +
+  scale_y_continuous('Cases', labels = comma, breaks = seq(2,24,2) ) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 2),
+       legend.position = 'right' ) +
+  facet_grid(SCRes ~ .)
+g
+```
+
+```{r epicurvecaseswerecontacts_Kin, fig.height=8, fig.width=6.5, fig.cap='Epicurve of cases and known contacts who became cases (colored boxes), Kindia.', eval=FALSE}
+
+substrRight <- function(x, n){
+  substr(x, nchar(x)-n+1, nchar(x))
+} 
+
+load('kin.keys.rda')
+keys = kin.keys
+
+# select one key pair for each case; one pair for each contact
+key. = keys %>% 
+  group_by(case) %>% filter(row_number(contact)==1) %>%
+  group_by(contact) %>% filter(row_number(case)==1) %>% as.data.frame()
+
+sourceCases = key. %>% select(SourceCaseID) %>%
+  left_join( data , by = c('SourceCaseID' = 'ID' )) %>%
+  merge(Region, all.x = TRUE, by.x= 'District', by.y ='DistrictRes' ) %>%
+  rename(sourceSCRes = SCRes) %>%
+  select( SourceCaseID, sourceSCRes) %>% unique() 
+
+sourceCases[is.na(sourceCases$sourceSCRes) | 
+              sourceCases$sourceSCRes %in% '', 'sourceSCRes'] = 'Missing'
+conakry.districts = c('DIXINN','KALOUM' ,'MATAM', 'MATOTO', 'RATOMA')
+notConakry = !( toupper(sourceCases$sourceSCRes) ) %in% conakry.districts
+notMissing = !( sourceCases$sourceSCRes %in% 'Location missing')
+sourceCases[ notConakry &  notMissing, 'sourceSCRes'] = 'Other'
+
+g = 
+  data.kindia %>% 
+  left_join( key. %>% select(case, SourceCaseID), by = c('ID'= 'case')) %>%
+  left_join(sourceCases) %>%
+  mutate( idnum = substrRight(SourceCaseID, 4),
+          period = as.Date(floor_date(dateOnset, "week")),
+          SCRes = ifelse(is.na(SCRes) | SCRes %in% '', 
+                         "LOCATION NOT REPORTED", toupper(SCRes)) , 
+          sourceSCRes = ifelse(is.na(sourceSCRes) | sourceSCRes %in% '', 
+                               "Not a Known Contact", toupper(sourceSCRes))
+          ) %>% 
+  group_by( period, SCRes, ID ) %>%
+  summarize( freq = n() ,
+             idnum = idnum,
+             sourceSCRes = sourceSCRes) %>%
+  mutate( cumsum = cumsum(freq),
+          midpoint = (cumsum(freq) - 0.5 * freq)) %>%
+  ## plot
+  ggplot( aes(x = period , y = freq) ) +
+  geom_bar( stat = 'identity', aes( fill=sourceSCRes), color= 'black' ) +
+  scale_fill_manual('Source Case from:', values = c('DIXINN' = 'red',
+                                                   'KALOUM' = 'green',
+                                                   'MATOTO' = 'blue',
+                                                   'MATAM' = 'yellow',
+                                                   'RATOMA' = 'purple',
+                                                   'LOCATION NOT REPORTED' = 'black',
+                                                   'OTHER' = 'orange',
+                                                   'Not a Known Contact' = 'white'
+                                                   ) 
+                    ) + 
+#   geom_text( aes(y = midpoint, ymax=midpoint, label = idnum), size = 2, hjust=0.5) +
+  scale_x_date('Week beginning', labels = date_format("%b-%d"),
+               breaks = date_breaks("week")) +
+  scale_y_continuous('Cases', labels = comma, breaks = seq(2,26, by=2) ) + 
+  theme(axis.text.x = element_text(angle = 90, hjust = 2),
+       legend.position = 'right' ) 
+g
+
+# png('epicurve_secondary_cases.png', height = 7, width = 9.5, units = 'in', res=200)
+# g
+# dev.off()
+```
+
+
+```{r sourcCases}
+load('keys.rda')
+
+d = data.cky %>% 
+  left_join( edges %>% select(case, source), by = c('ID'= 'case')) %>%
+  left_join(sourceCases[, c('source', 'sourceDistrict', 'sourceSCRes', 'sourceRegion')], 
+            by = 'source') %>%
+  mutate( knownContact = ifelse(is.na(sourceRegion), 'Followed', 'Not Followed*') , 
+          daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ),
+          sourceRegion = ifelse(is.na(sourceRegion), 'Source case unidentified', 
+                                ifelse(sourceRegion %in% 'Conakry', 'Conakry', 'Other')
+                                ) 
+          ) %>%
+  select( ID, knownContact, sourceRegion, daysToIso, Age, HCW, Gender) %>% 
+  group_by( knownContact, sourceRegion, ID) %>%
+  summarize(  n = 1) 
+, 
+              Age = sprintf("%s", 
+                            format(median(floor(ages/12), na.rm = TRUE), nsmall = 1) ),
+              Under5 = sprintf("%s%%", 
+                            format(round( 100*sum(ifelse(ages/12 <5, 1, 0), na.rm = TRUE)/n, 1) ) ),
+              Male = sprintf("%s%%", 
+                             round(100*sum(Gender-1, na.rm = TRUE)/n, 1) ) , #1-Masculine, 2-Feminine
+              HCW = sprintf( '%s%%', 
+                             round(sum(HCW, na.rm = TRUE)/n, 1) ) ,# 0-no, 1-Yes
+              Iso = sprintf("%s", 
+                            format(mean(daysToIso, na.rm = TRUE), nsmall = 1) )
+             )
+
+t = t(d) %>% as.data.frame()
+colnames(t) = c('Known Contact', 'Not Known Contact')
+rownames(t)[6] = 'Healthcare Worker'
+rownames(t)[3] = 'Age: Median (years)'
+rownames(t)[4] = 'Age: Under 5 years'
+rownames(t)[7] = 'Days to Isolation (median)'
+
+t = t[-c(1,7), ]  # take off row that is now the header (1) and days to isolation (7)
+
+kable( t, align = c('r', 'r'), 
+       digits = 1, 
+       caption = 'Characteristics of EVD cases who were known contacts' )
+
+# test of significance for under 5
+d = 
+  data %>%
+  left_join( key.[, 1:2], by = c('ID' = 'case')) %>%
+  mutate( knownContact = ifelse(is.na(contact), 'Not Followed*', 'Followed'), 
+          Under5 = ifelse(ages/12<5, 'under5', 'over5') 
+          )
+
+t = table(d$Under5, d$knownContact)
+f = fisher.test(t)
+
+```
+
+```{r secondarycasescky, fig.cap = 'Histogram of the number of secondary cases associated with source cases.', fig.height= 3}
+
+load('keys.rda')
+
+# There are a few multiple contact-case pairs do to duplicates. 
+# all duplicates have same source case.  The following removes the duplicates
+key. = keys %>% 
+  group_by(case) %>% filter(row_number(contact)==1) %>%
+  as.data.frame()
+
+# key. %>% filter(dateOnset %within% SeptemberOctober ) %>% count(contact)
+
+sourceCases = key. %>% 
+  filter(dateOnset %within% SeptemberOctober ) %>% 
+  select(SourceCaseID) %>%
+  count(SourceCaseID) %>%
+  left_join( data , by = c('SourceCaseID' = 'ID' )) %>%
+  rename(sourceSCRes = SCRes,
+         Secondary = n) %>%
+  arrange(-Secondary) %>%
+  unique() %>%
+  mutate( CaseID = LETTERS[1:12],
+          Outcome = ifelse(StatusReport ==1, 'Died', 'Alive'),
+          Hospitalized = ifelse( !is.na(DateHospitalCurrentAdmit), 'Y', 'N'),
+          Age = floor(ages/12))  %>%
+  select( SourceCaseID,
+          CaseID, DistrictRes, sourceSCRes, dateOnset, Gender, 
+          Age, HCW, Hospitalized, Outcome, Secondary) 
+
+# sourceCases[is.na(sourceCases)] = 0
+
+kable(sourceCases %>% select(-SourceCaseID), 
+      align = 'r', caption = 'Characteristics of source cases', row.names = FALSE)
+
+sourceCases[is.na(sourceCases$sourceSCRes), 'sourceSCRes'] = 'Missing'
+  
+john.ben.interval = new_interval(ymd("2014-Aug-1"), ymd("2014-OCT-30"))
+
+t = key. %>% 
+  filter(dateOnset %within% john.ben.interval ) %>%
+  count(SourceCaseID) %>%
+  arrange(-n) %>%
+  rename(Number_2ndary_Cases = n)
+
+# kable(t)
+
+g = t %>% filter(!is.na(t$SourceCaseID)) %>%
+ggplot(aes(x=Number_2ndary_Cases )) +
+  geom_bar() +
+  scale_y_continuous('Frequency') +
+  scale_x_continuous('Number of secondary cases', 
+                     breaks = seq(1, max(t$Number_2ndary_Cases), 2)
+                     ) 
+g
+
+# r=naught
+secondary = sum(t$Number_2ndary_Cases, na.rm=T)
+sources = sum(!is.na(t$SourceCaseID))
+
+noSpread = data.cky[data.cky$dateOnset <= max(sourceCases$dateOnset, na.rm = TRUE) ,] %>%
+  filter( !(ID %in% sourceCases$SourceCaseID)) %>%
+  nrow()
+
+r0max =  secondary  / sources
+r0min = secondary  / (sources + noSpread)
+
+# effect of reducing superspreader to only one secondary case
+r0prime = (secondary - 9) / sources
 
 
 ```
@@ -951,6 +1051,37 @@ getCountries = function (fileNames, level = 0, ...) {
 
 
 tolerance = .01
+
+country = "LBR"
+
+     gadm.lib = getCountries(country, level=0)
+     gadm.lib.f = as.data.frame(gadm.lib) 
+    liberia = gadm.lib %>%
+#             gSimplify(tolerance, topologyPreserve=T) %>%
+            fortify(region = "ID_0") %>%
+            mutate( id = as.integer(id)) %>%
+            reshape::rename(c("id" = "ID_0")) %>%  #explicit call to rename function in reshape package (as opposed to rename function in plyr package)
+            left_join(
+              gadm.lib.f[, c("ID_0", "NAME_ENGLISH")])
+
+  liberia.c =  gadm.lib %>% coordinates()  %>% as.data.frame() 
+  liberia.c$NAME = 'Liberia'
+
+country = "SLE"
+
+     gadm.sle = getCountries(country, level=0)
+     gadm.sle.f = as.data.frame(gadm.sle) 
+    sierra = gadm.sle %>%
+#             gSimplify(tolerance, topologyPreserve=T) %>%
+            fortify(region = "ID_0") %>%
+            mutate( id = as.integer(id)) %>%
+            reshape::rename(c("id" = "ID_0")) %>%  #explicit call to rename function in reshape package (as opposed to rename function in plyr package)
+            left_join(
+              gadm.sle.f[, c("ID_0", "NAME_ENGLISH")])
+  sierra.c =  gadm.sle %>% coordinates()  %>% as.data.frame() 
+  sierra.c$NAME = 'Sierra Leone'
+
+
 country = "GIN"
 
      gadm = getCountries(country, level=3)
@@ -963,6 +1094,8 @@ country = "GIN"
      # fix name of capital in GADM file!
      regions[regions$DistrictRes == 'Conarky', 'DistrictRes'] = 'Conakry'
      regions[regions$Region == 'Conarky', 'Region'] = 'Conakry'
+      
+    regions[regions$DistrictRes == 'Yamou', 'DistrictRes'] = 'Yomou'
 
 save(regions, file = 'regions.rda')
      
@@ -976,6 +1109,8 @@ save(regions, file = 'regions.rda')
 
 # fix name of capital in GADM file!
 GIN3[GIN3$NAME_2 == 'Conarky', 'NAME_2'] = 'Conakry'
+GIN3[GIN3$NAME_2 == 'Yamou', 'NAME_2'] = 'Yomou'
+
 
 # get location and names for labels
 # Admin 3 labels 
@@ -994,6 +1129,7 @@ GIN3[GIN3$NAME_2 == 'Conarky', 'NAME_2'] = 'Conakry'
                               )
 # fix name of capital in GADM file!
 GIN3.c[GIN3.c$Name == 'Conarky', 'Name'] = 'Conakry'
+GIN3.c[GIN3.c$Name == 'Yamou', 'Name'] = 'Yomou'
 
 # Admin 2
 
@@ -1010,6 +1146,7 @@ GIN3.c[GIN3.c$Name == 'Conarky', 'Name'] = 'Conakry'
 
 # fix name of capital in GADM file!
 GIN2[GIN2$NAME_2 == 'Conarky', 'NAME_2'] = 'Conakry'
+GIN2[GIN2$NAME_2 == 'Yamou', 'NAME_2'] = 'Yomou'
 
 # Admin 2 labels
 
@@ -1027,6 +1164,7 @@ GIN2[GIN2$NAME_2 == 'Conarky', 'NAME_2'] = 'Conakry'
 
 # fix name of capital in GADM file!
 GIN2.c[GIN2.c$Name == 'Conarky', 'Name'] = 'Conakry'
+GIN2.c[GIN2.c$Name == 'Yamou', 'Name'] = 'Yomou'
 
 ```
 
@@ -1125,15 +1263,19 @@ p[is.na(p)] <- 0  # convert NA to 0
 
 # classify values
 p$SepOct =  cut(p$SepOct, 
-                      breaks = c(0, 1, 5, 10, 20, 50, Inf), 
-                      label = c('0','1-4','5-9','10-19', '20-49', '50+'),
+                      breaks = c(1, 25, 50, 100, 200, 400, Inf), 
+                      label = c('1-25','25-49','50-99','100-199','200-399', '400 +'),
+#                       breaks = c(0,1, 10, 20, 50, 100, Inf), 
+#                       label = c('0','1-9','10-19','20-50','50-100', '100 +'),
                       right=FALSE, include.lowest=TRUE)
 
 
 # classify totals 
 p$previous =  cut( p$previous, 
-                      breaks = c(0,1,10, 20, 50, 100, Inf), 
-                      label = c('0','1-9','10-19','20-50','50-100', '100 +'),
+                      breaks = c(0, 1, 25, 50, 100, 200, 400, Inf), 
+                      label = c('0','1-25','25-49','50-99','100-199','200-399', '400 +'),
+#                       breaks = c(0, 1, 10, 20, 50, 100, Inf), 
+#                       label = c('0','1-9','10-19','20-50','50-100', '100 +'),
                       right=FALSE, include.lowest=TRUE)
 
 # Join data with map
@@ -1146,21 +1288,31 @@ map.data.p = merge(GIN2, p, all.x=TRUE,
 map.data.p.c = merge(GIN2.c, p, all.x=TRUE, by.y='NAME_2', by.x = 'Name') 
 
 color.brewer ="YlOrBr" # "Purples" # 
-colors = brewer.pal(6, color.brewer)  # fill colors
+colors = brewer.pal(7, color.brewer)  # fill colors
 
 g = ggplot( ) + theme_map +
+  coord_map() +
   geom_polygon(data= map.data.p,
                aes(x=long, y=lat, group=group, 
                    fill=previous), 
                color="grey50", alpha=1) + 
-  geom_text(data= GIN2.c, aes(label = Name, x=V1, y=V2), size=4, vjust = 2) +
+  geom_text(data= GIN2.c, aes(label = Name, x=V1, y=V2), size=3, vjust = 1.5) +
   scale_fill_manual('Cases through August, 2014', values = colors, drop = FALSE) +
-  geom_point(data= map.data.p.c, aes(x=V1, y=V2, size = SepOct, alpha = SepOct), 
-             color = "red") + # maroon ""
+  geom_point(data= map.data.p.c, aes(x=V1, y=V2, size = SepOct), 
+             color = "black") + 
   scale_size_discrete("Cases During September-October, 2014") +
-  scale_alpha_discrete("Cases During September-October, 2014")
+  scale_alpha_discrete("Cases During September-October, 2014") +
+  geom_polygon(data= liberia,
+               aes(x=long, y=lat, group=group), 
+               color="grey50", fill = NA) +
+  geom_text(data= liberia.c, aes(label = NAME, x=V1, y=V2), size=4, vjust = 1.5) +
+  geom_polygon(data= sierra,
+               aes(x=long, y=lat, group=group), 
+               color="grey50", fill = NA) +
+  geom_text(data= sierra.c, aes(label = NAME, x=V1, y=V2), size=4, vjust = 1.5) +
+  labs(x=NULL, y=NULL)
 g
 
-ggsave('SepOct.png', width=6.5, height=6.5, units='in')
+# ggsave(plot = g, 'SepOct.png', width=6.5, height=6.5, units='in')
 ```
 
