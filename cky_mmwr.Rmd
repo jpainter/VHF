@@ -1,18 +1,18 @@
 ---
 title: Ebola Virus Disease Contact Reporting and Outbreak Response Monitoring, Conakry,
-  Guinea, September-October, 2014
+  Guinea, August-November, 2014
 author: John Painter (Corresponding author), Benjamin Dahl, Fatima Coronado, Mathieu
   Bangerts, Michael Martin, Guenael Rodier, William Perera, Boubacar Diallo, (Stephan
   - MSF) (WHO DB admins), Jon E. Tongren
 date: "Friday, October 24, 2014"
 output:
+  pdf_document:
+    fig_caption: yes
+    keep_tex: yes
   word_document:
     fig_caption: yes
     fig_height: 4
     fig_width: 6.5
-  pdf_document:
-    fig_caption: yes
-    keep_tex: yes
 ---
 
 \openup 1em  
@@ -41,6 +41,7 @@ library(RColorBrewer)
 
 # library(devtools)
 # devtools::install_github("hadley/tidyr")
+library(stringr)
 library(tidyr) # install from github (CRAN version not working...)
 library(dplyr, quietly=TRUE) # order is important...
 
@@ -56,43 +57,47 @@ library(dplyr, quietly=TRUE) # order is important...
 
 ### Warning: this data is missing recordxs....
 
-#....so use same VHF data used to find cases-contacts
-load('cases.guinea.rda')
-
 SeptemberOctober = new_interval(ymd('2014-SEP-01'), ymd('2014-OCT-31') )
+AugustNovember = new_interval(ymd('2014-AUG-01'), ymd('2014-NOV-30') )
 
 load('regions.rda')
 Region = regions %>%  # table includes Region, DistrictRes, SCRes
   select(-SCRes) %>% # remove SCRes
   unique()
+
+#....so use same VHF data used to find cases-contacts
+load('cases.guinea.rda')
 
 data = cases.guinea %>% 
   merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
   mutate( 
     month = months(dateOnset),
-    daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ),
-    ages = ifelse( AgeUnit %in% 'Ans', Age*12, Age)
+    daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) )  ,
+    Age = as.integer(Age) ,
+    ages = ifelse( AgeUnit %in% 'Ans', Age*12, Age ), 
+    Gender = ifelse( Gender %in% '', NA, as.integer(Gender) ),
+    HCW = factor(HCW)
     ) 
 
 data.cky = data %>% filter( Region %in% 'Conakry') %>% 
-  filter(dateOnset %within% SeptemberOctober ) 
+  filter(dateOnset %within% AugustNovember ) 
 
 data.kindia = data %>% filter( Region %in% 'Kindia') %>%
-  filter(dateOnset %within% SeptemberOctober )
+  filter(dateOnset %within% AugustNovember )
 
 data.forrest = data %>% filter( Region %in% 'Nzérékoré') %>% 
-  filter(dateOnset %within% SeptemberOctober )  
+  filter(dateOnset %within% AugustNovember )  
 
 
 # contacts...
-load('contacts.guinea.rda') # see cky_case_contacts.Rmd
+load('contacts.rda') # see nameMatch.R
 
 load('regions.rda')
 Region = regions %>%  # table includes Region, DistrictRes, SCRes
   select(-SCRes) %>% # remove SCRes
   unique()
 
-contact.cky  = contacts.guinea %>% 
+contact.cky  = contacts %>% 
   merge(Region, all.x = TRUE, by.x= 'District', by.y ='DistrictRes' ) %>%
   filter(Region %in% c('Conakry', 'Kindia') )
 
@@ -100,48 +105,28 @@ contact.cky  = contacts.guinea %>%
 
 ```
 
-In Guinea, the number of newly identified Ebola virus disease (EVD) increased during September-October, 2014 compared with previous months. There were `r data %>% count()` new cases of EVD in Guinea (Table 1, Figure 1). As in previous months, most new cases were identified in the forest region (Guéckédou, Macenta, Nzérékoré, and Beyla districts).  In Conakry, the capital, which is approximately 450 miles from the forrest region, there were `r data.cky %>% count()` new cases, which was much greater than the number of cases previosuly identified in Conakry, suggesting the possibility of uncontrolled transmission in an urban area.  Urban transmission has been a primary factor in the large numbers of EVD cases in the neighboring countries, Liberia and Sierra Leone.^[Recent MMWR report...] Additionally, there were `r data.kindia %>% count()` new cases in Kindia, the district adjacent to Conakry.  Interviews of EVD cases identified potentially exposed persons (contacts) who were followed by local public health officials.  Matching person identifiable information from case and contact registrys, we identified 30 (`r percent(30/nrow(data.cky))`) cases that were known contacts of cases.  Monitoring these secondary cases may be a useful measure for assessing the completeness and effectiveness of contact investigations. 
-
-# EVD in Conakry and Adacent Districts
-
-Prior to the opening of a third Ebola treatment center (ETC) in Macenta, all Ebola patients in Guinea were treated at the Medecin Sans Frontiers (MSF) ETC in Conakry or Guéckédou.  This report summarizes patient identificatio and contact tracing activity conducted in Conakry.   
-
-## Patient Identification
- 
-When Ebola symptoms are identified in a person, a public health alert is triggered to provide effective patient care, stop disease transmission, and offer community education. To receive health care, suspect patient from Conakry and surrounding districts were transported to the Donka ETC^[http://www.msf.org/article/guinea-donka-ebola-treatment-centre-conakry-stretched-limit] and placed in isolation. Specimens were taken for laboratory confirmation, with the results usually being available within 24 hours. Affected persons were hospitalized until their laboratory specimens were negative.  During this period, Donka hospital was able to admit all suspected and confirmed EVD patients for isolationa and treatment.
-
-## Contact Tracing
-
-To stop disease transmission, information regarding contacts was obtained by for all identified Ebola patients. For hospitalized patients, this information was collected by Donka ETC staff.  The Guinean MoH is responsible for the contact tracing throughout the country. CDC and WHO provide provide training and support.  Community agents visit identified contacts daily for fever and symptom checks for 21 days after last exposure to a EVD case.  Community agent supervisors spot check with random visits to contact families, fill in and report the contact tracing forms daily, and have biweekly meetings to respond to challenges.Contacts were systematically monitored for symptoms for 21 days (i.e., wellness checks and temperature monitoring daily); any contact demonstrating Ebola symptoms was placed in isolation, tested for the virus, and asked about their contacts. If a contact did not have any symptoms after 21 days, the contact was considered no longer monitored. Contact tracing teams and field supervisors were responsible for the prompt and full implementation of contact tracing activities, and the contact tracing process repeated with each newly identified patient until no new cases occur. Contact tracing information was sent to WHO/MoH to update information in a national database.  The number of contacts reported to the national VHF database with date of last exposure in Sepember and October, 2014 was 2,990 for Conakry and only 51 for Kindia. (Figure 2.)
-
-## Patient and Contact Information Flow
-
-A case notifications form, including demographic, clinical, epidemiologic, and laboratory information, was completed at the Donka ETC for all patients, including suspect, probable and laboratory-confirmed. Data collected on the form are entered into an Excel® (Microsoft Corp., Redmond, Washington) spreadsheet by the ETC staff and sent every evening to the World Health Organization (WHO) and Guinean Ministry of Health (MoH). Data sent from the two Guinean ETCs (i.e., Conakry and Guéckedou) were entered into the Epi Info™ (CDC, Atlanta, Georgia) viral hemorrhagic fever (VHF) national database and analyzed daily. To update case-reports when new laboratory results or patient status (e.g. died, or discharged) became available, MSF sent an updated spreadsheet by e-mail to WHO/MoH.
-
 ## New Cases that were known contacts. 
-
-To identify cases who were known contacts, we linked records for cases and contacts entered into the national VHF database.  Linkage was performed by cross-checking first and last name, age, and addresses (region, district, sub-district, and village). Names were matched using a probabalistic algorithm that ranked matches according to the number of chracter or digits that would need to be changed in order to create an exact match.  We considered a difference of 3 or less characters in names and locations, and 1 or less character in the age, as a potential match.  Potential matches with illness onset before the contact's reported exposure were excluded.  
 
 The number of cases who were known contacts was 35 (`r percent(35/134)`) of 134 total cases in Conakry during September and October, 2014.  During the same period in the five districts of Conakry, the percentage of cases who were known contacts was 42% (5 of 12) in Dixinn, 9% (2 of 23) in Kaloum, 23% (3 of 13) in Matam, 17% (8 of 47) in Matoto, and 31% (11 of 36) in Ratoma (Figure 4). Additionally, we 16% (6 of 38) of cases were known contacts but were missing address data ('Unknown').     
 
-```{r sourcCases}
+```{r sourceCases}
 load('keys.rda')
 
 # There are a few multiple contact-case pairs do to duplicates. 
 # all duplicates have same source case.  The following removes the duplicates
 key. = keys %>% 
-  group_by(case) %>% filter(row_number(contact)==1) %>%
+  group_by(caseID) %>% filter(row_number(contactID)==1) %>%
   as.data.frame()
 
 d = 
   data.cky %>%
-  left_join( key.[, 1:2], by = c('ID' = 'case')) %>%
-  mutate( knownContact = ifelse(is.na(contact), 'Not Followed*', 'Followed'), 
+  left_join( key.[, 1:2], by = c('ID' = 'caseID')) %>%
+  mutate( knownContact = ifelse(is.na(contactID), 'Not Followed*', 'Followed'), 
           daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) )
           ) %>%
   select( ID, knownContact, daysToIso, ages, HCW, Gender) %>% 
   group_by(knownContact) %>%
-  summarize(  n = n(), 
+  summarise(  n = n(), 
               Age = sprintf("%s", 
                             format(median(floor(ages/12), na.rm = TRUE), nsmall = 1) ),
               Under5 = sprintf("%s%%", 
@@ -170,8 +155,8 @@ kable( t, align = c('r', 'r'),
 # test of significance for under 5
 d = 
   data %>%
-  left_join( key.[, 1:2], by = c('ID' = 'case')) %>%
-  mutate( knownContact = ifelse(is.na(contact), 'Not Followed*', 'Followed'), 
+  left_join( key.[, 1:2], by = c('ID' = 'caseID')) %>%
+  mutate( knownContact = ifelse(is.na(contactID), 'Not Followed*', 'Followed'), 
           Under5 = ifelse(ages/12<5, 'under5', 'over5') 
           )
 
@@ -186,58 +171,59 @@ load('keys.rda')
 
 # There are a few multiple contact-case pairs do to duplicates. 
 # all duplicates have same source case.  The following removes the duplicates
-key. = keys %>% 
-  group_by(case) %>% filter(row_number(contact)==1) %>%
-  as.data.frame()
+# and limits to cases within AugustNovember, and just Conakry
 
-# key. %>% filter(dateOnset %within% SeptemberOctober ) %>% count(contact)
+## TODO : figure out how to include cases with multiple case-contact matches.
+
+key. = keys %>% 
+  group_by(caseID) %>% filter(row_number(contactID)==1) %>%
+  as.data.frame() %>%
+  left_join( data , by = c('caseID' = 'ID' )) %>%
+  select( caseID, contactID, dateOnset, DistrictRes) %>%
+  filter( dateOnset %within% AugustNovember &
+            DistrictRes %in% 'Conakry') 
 
 sourceCases = key. %>% 
-  filter(dateOnset %within% SeptemberOctober ) %>% 
-  select(SourceCaseID) %>%
+  inner_join(contacts,  by = c('contactID' = 'ID')) %>%
+  select(caseID, SourceCaseID) %>% 
   count(SourceCaseID) %>%
-  left_join( data , by = c('SourceCaseID' = 'ID' )) %>%
+  left_join( data , by = c('SourceCaseID' = 'ID' )) %>% 
   rename(sourceSCRes = SCRes,
          Secondary = n) %>%
   arrange(-Secondary) %>%
-  unique() %>%
-  mutate( CaseID = LETTERS[1:12],
+  mutate( 
           Outcome = ifelse(StatusReport ==1, 'Died', 'Alive'),
-          Hospitalized = ifelse( !is.na(DateHospitalCurrentAdmit), 'Y', 'N'),
+          Hospitalized = ifelse( !is.na(DateIsolationCurrent), 'Y', 'N'),
           Age = floor(ages/12))  %>%
   select( SourceCaseID,
-          CaseID, DistrictRes, sourceSCRes, dateOnset, Gender, 
+          DistrictRes, sourceSCRes, dateOnset, Gender, 
           Age, HCW, Hospitalized, Outcome, Secondary) 
 
-# sourceCases[is.na(sourceCases)] = 0
+sourceCases. = sourceCases %>%
+  summarise(n = n() ,
+            Age = mean(Age, na.rm = TRUE),
+            Female = sum( Gender == 2 , na.rm=TRUE) / n, #1-Masculine, 2-Feminine
+            Secondary = mean(Secondary)
+            )
 
-kable(sourceCases %>% select(-SourceCaseID), 
+kable(sourceCases., 
       align = 'r', caption = 'Characteristics of source cases', row.names = FALSE)
 
-sourceCases[is.na(sourceCases$sourceSCRes), 'sourceSCRes'] = 'Missing'
+# sourceCases[is.na(sourceCases$sourceSCRes), 'sourceSCRes'] = 'Missing'
   
-john.ben.interval = new_interval(ymd("2014-Aug-1"), ymd("2014-OCT-30"))
 
-t = key. %>% 
-  filter(dateOnset %within% john.ben.interval ) %>%
-  count(SourceCaseID) %>%
-  arrange(-n) %>%
-  rename(Number_2ndary_Cases = n)
-
-# kable(t)
-
-g = t %>% filter(!is.na(t$SourceCaseID)) %>%
-ggplot(aes(x=Number_2ndary_Cases )) +
-  geom_bar() +
+g = sourceCases %>%
+ggplot(aes(x=Secondary )) +
+  geom_bar(binwidth=1, color='white') +
   scale_y_continuous('Frequency') +
   scale_x_continuous('Number of secondary cases', 
-                     breaks = seq(1, max(t$Number_2ndary_Cases), 2)
+                     breaks = seq(1, max(sourceCases$Secondary), 2)
                      ) 
 g
 
 # r=naught
-secondary = sum(t$Number_2ndary_Cases, na.rm=T)
-sources = sum(!is.na(t$SourceCaseID))
+secondary = key. %>% count(caseID) %>% nrow()
+sources = sourceCases %>% count(SourceCaseID) %>% nrow()
 
 noSpread = data.cky[data.cky$dateOnset <= max(sourceCases$dateOnset, na.rm = TRUE) ,] %>%
   filter( !(ID %in% sourceCases$SourceCaseID)) %>%
@@ -247,14 +233,14 @@ r0max =  secondary  / sources
 r0min = secondary  / (sources + noSpread)
 
 # effect of reducing superspreader to only one secondary case
-r0prime = (secondary - 9) / sources
+r0prime = (secondary - 13) / sources
 
 
 ```
 
 There were only 15 source cases for the 35 secondary cases identified.  From these, we estimate a reproductive number between `r round(r0max, 1)` and `r round(r0min, 1)`.  The maximum reproductive number was estimated from only those cases with a secondary case (Figure 3); the minimum was estimated when including all cases for whom no secondary cases were identified.
 
-```{r isolationg, warning=FALSE}
+```{r isolationg}
 
 cky.kin = rbind(data.cky, data.kindia)
 
@@ -262,14 +248,15 @@ load('keys.rda')
 
 # There are a few multiple contact-case pairs do to duplicates. 
 # all duplicates have same source case.  The following removes the duplicates
+# TODO: include all cases--figure out way of deciding which contact goes with the case
 key. = keys %>% 
-  group_by(case) %>% filter(row_number(contact)==1) %>%
+  group_by(caseID) %>% filter(row_number(contactID)==1) %>%
   as.data.frame()
 
 d = 
   data.cky %>%
-  left_join( key.[, 1:2], by = c('ID' = 'case')) %>%
-  mutate( knownContact = ifelse(is.na(contact), 'Not Followed*', 'Followed'), 
+  left_join( key.[, 1:2], by = c('ID' = 'caseID')) %>%
+  mutate( knownContact = ifelse(is.na(contactID), 'Not Followed*', 'Followed'), 
           daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset)),
           daysToIso = ifelse(daysToIso < 1 , NA, daysToIso ),
           iso3 = ifelse(daysToIso <= 3 , 1, 0)
@@ -304,43 +291,58 @@ The percentage of patients who were isolated within 3-days of illness onset was 
 The superspreader highlighted in this report accounted for 10 (`r percent(10/31)`) of 31 secondary cases.  Information on the relationships between these cases was missing from the database.  These could be systematically collected, but this requires additional resources and it may be as effective to investigate this cluster after the fact to determine the factors contributing to superspreading.  As there are relatively few superspreaders who contribute to a large number of cases, it would be resource-effective to restrict additional resources to investigation of the superspreading events highlighted through analysis of routine surveillance data.  
 
 ```{r superspreaderSecondary}
+load('keys.rda')
 
 d = # primary case data
   data.cky %>%
   filter(ID %in% 'GUI-CKY-14-1365') %>%
-  select(Gender, ages, DateHospitalCurrentAdmit, StatusAsOfCurrentDate, DateDeath, PlaceDeath,
+  select(Gender, ages, DateIsolationCurrent, DateHospitalCurrentAdmit, StatusAsOfCurrentDate, DateDeath, PlaceDeath,
          ContactName1, ContactRelation1, HCW)
 
 load('contacts.rda') # see cky_case_contacts.Rmd
 e = contacts %>%
   filter( SourceCaseID %in%  'GUI-CKY-14-1365')
 
-f = contacts[, c('ID', 'DateLastContact', 'SourceCaseID')] %>%
-  left_join(key.[, c('contact', 'case')] , by = c('ID' = 'contact') ) %>%
-  left_join(data.cky[, c('ID', 'ages', 'dateOnset', 'Gender','HCW', 'SCRes')] , 
-            by = c('case' = 'ID') ) %>%
-  filter( SourceCaseID %in%  'GUI-CKY-14-1365') %>%
-  mutate( incubation = dateOnset - DateLastContact)
-  
-  kable( f %>%
+f = e %>%
+  left_join( keys , by = c('ID' = 'contactID') ) %>%
+  mutate( caseID = as.character(caseID))  
+
+ f. = f %>%
     summarise(  n = n(), 
               Age = sprintf("%s", 
-                            format(median(floor(ages/12), na.rm = TRUE), nsmall = 1) ),
+                            format(median(Age, na.rm = TRUE), nsmall = 1) ),
               Under5 = sprintf("%s%%", 
-                            format(round( 100*sum(ifelse(ages/12 <5, 1, 0), na.rm = TRUE)/n, 1) ) ),
-              Male = sprintf("%s%%", 
-                             round(100*sum(Gender-1, na.rm = TRUE)/n, 1) ) , #1-Masculine, 2-Feminine
+                            format(round( 100*sum(ifelse(Age <5, 1, 0), na.rm = TRUE)/n, 1) ) ),
+              Female = sprintf("%s%%", 
+                             round(100*sum(Gender %in% "Feminin", na.rm = TRUE)/n, 1) ) , #1-Masculine, 2-Feminine
               HCW = sprintf( '%s%%', 
-                             round(sum(HCW, na.rm = TRUE)/n, 1) ) ,# 0-no, 1-Yes
-              inc = sprintf("%s", 
+                             round(sum(HCW %in% "Oui", na.rm = TRUE)/n, 1) ) # 0-no, 1-Yes
+             )
+
+kable( f.,   caption = 'Characteristics of Cases Associatied with Case A')
+ 
+# contacts who became case
+g = e[, c('ID', 'DateLastContact', 'SourceCaseID')] %>%
+  left_join( keys , by = c('ID' = 'contactID') ) %>%
+  mutate( caseID = as.character(caseID)) %>% 
+  filter( !is.na(caseID) ) %>%
+  select(caseID, DateLastContact) %>% unique() %>%
+  left_join( data[, c('ID', 'ages', 'dateOnset', 'Gender','HCW', 'SCRes')] , 
+            by = c('caseID' = 'ID') ) %>%
+  mutate( incubation = as.Date(dateOnset) - as.Date(DateLastContact))
+
+g. = g %>% 
+  summarise(
+          n = n() ,
+          inc = sprintf("%s", 
                             format(mean(incubation, na.rm = TRUE), nsmall = 1) ),
               incmin = sprintf("%s", 
                             format(min(incubation, na.rm = TRUE), nsmall = 1) ),
               incmax = sprintf("%s", 
                             format(max(incubation, na.rm = TRUE), nsmall = 1) )
-             ),
-    caption = 'Characteristics of Cases Associatied with Case A')
+          )
   
+
 ```
 
 Case A, who was the source of infection for 10 confirmed EVD cases was a 40 year old woman whose symptoms included fever and joint pain. According to the case report form, her illness onset, hospitalization, laboratory confirmation of EVD, and death were all on September 2, 2014.  She did not report having contact with a known case and was not a healthcare worker. Case investigators identified 72 persons (Table 4.) who directly touched, ate with, or lived with Case A when she was ill. Of these 12 (`r percent(10/72)`) became confirmed cases from 7 to 21 days after last exposure.  Of these, 7 of had onset close to 3-weeks after last exposure and may signal that there was another (unidentified) case with whom these contacts were exposed.   
@@ -463,35 +465,17 @@ igraphChain(sourceID = 'GUI-KER-14-3034', title = 'Patient C Transmission', edge
   
 ```
 
-
 # Discussion
-
-Contact tracing programs are an essential mechanism to provide prompt admission of EVD cases to treatment centers. With facilities available for effective isolation and treatment, it is critical to follow contacts of all known cases diagnosed for 21 days. A critical metric for monitoring the success of outbreak control through contact tracing is to identify the number of new cases who were known contacts and that were being monitored daily. Ideally, all new cases would be identified through contact tracing. 
-
-In practice, many programs report the percentage of contacts that were followed each day. While completiong of contact tracing is necessary, it may not be sufficient if contacts were not accurately identified and reported to the contact tracing teams.  It is also possible that 99% of contacts are being followed but the ones who go on to develop disease are not.  Moreover, new chains of transmission could occur apart from those already identified.  
-
-Given the large number of contacts, documenting daily visits in a registry that can be evaluated for program evaluation is challenging, and is not done.  Rather, supervisors inquire verbally whether contact teams have reached all their assigned contacts. Typically this percentage is reported at levels approaching or reaching 100%.  A more practical and effective approach would be to confirm that all new cases were known contacts being followed daily. All new cases that were not known contacts being followed daily should prompt an investigation to identify gaps in the contact tracing programs.  
-
-Analysis of data presented here suggests that there were a large number of new EVD cases that were not being followed as contacts.  If true, these patients represent a missed opportunity to limit transmission through effective isolation and provide medical care.  However, data were not collect to directly asses whether new cases were known contacts and this retrospective analysis is limited by the data available, particularly the incomplete list contacts entered into the national Ebola database. The national database may be incomplete because: 1) patients were unable or unwilling to identify persons with whom they had contact after illness onset, 2) contact information was transmitted first to the local public health officials responsible for contact tracing and may not have been transmitted to the national VHF database, and 3) a new national registry of contacts was created in mid-October and entry into the national VHF database was stopped.  
-
-As expected, the number of days from illness onset to isolation was less for those who were know contacts than for others, although the difference was not as large as could be expected.  The smaller than expected difference may be due to data misclassification: some contact teams may have been following contacts that were either not entered into the VHF database or who were not able to be matched to ther subsequent case report. More importantaly, even when followed, some patients refused access by community agents and were unwilling to go to the ETU. For example, there was one extended family who refused access by community agents, resulting in delayed isolation and testing of 19 suspected EVD cases, all of whom subsequently confirmed cases after a community health agent was successful in convincing the family to participate in follow up visits for 21-days and to send ill patients to the ETU.  
-
-Constructing chains of transmission diagrams permits an understanding of how and where transmission is occurring. We found that all new cases were geographically concentrated among families. Thus transmission was not diffuse and reassured us that there were not unknown chains of transmission. Despite rising case counts initially, continued contact tracing should lead to dramatic reduction in new cases. (As contact tracing becomes effective, R0 likely to have apparent increase; models of increasing case counts should be interpreted with caution during this period.) Supervision and monitioring of contact tracing teams should include reconstructing chain of transmission diagrams. Visualizing chain of transmission provides feedback on the importance of contact tracing and helps assure accurate information is being gathered. 
-
-Some information was also available for Kindia, the Region adjacent to Conakry, which has two districts just outside of Conakry.  We were able to find only 4 of 71 cases who were known contacts.  (These four cases were linked to three source cases).  This may signify that more effort is needed to strengthen contact tracing and reporting in the districts adjacent Conakry.  Contact data from the forrest region is maintained outside of the national VHF database and was not available for this analysis.  
-
-Case investigation forms provide details of possible sources of transmission to the current patient. More importantly, it provides names of contacts who may have been exposed. As is shown in this report, this may be linked with case report forms to monitor contact tracing coverage and to better understand transmission.  Combining case and contact data into one database with a strong database link between case and contact would be ideal. Alternatively, cases and contacts registries having key personally identifiable information on both registries could be linked. This could also be acheived by documenting on the case report form whether the case had been interviewed by a contact tracing team and whether the new case was reported by contact tracing programs.      
-
-Contact tracing has been successful in interrupting transmission of EVD in Senegal and Nigeria.^[reference senegal and nigeria...].  However, those two countries had a relatively small number of EVD cases and contacts. Scaling contact tracing operations to a larger outbreak is logistically challenging. In September and October, contact tracing teams were hampered by transportation problems.  It was frequently reported that contact tracers had not recieved pay and were nonetheless using personal funds to purchase gas inorder to make the daily visits to contacts across the city.  These anectdotes highlights the number of persons committed to effective public health practice.  Efforts to create a system with effective and timely support for contact tracing is ongoing, and novel methods may be needed. Contact tracing teams critical to control of outbreak and should be strengthened.
 
 # Figures
 
 ```{r case_counts}
 
 x = data %>% 
-  filter(dateOnset %within% SeptemberOctober )   %>% 
+  filter(dateOnset %within% AugustNovember )   %>% 
   count(Region, month) %>% as.data.frame() %>%
-  mutate( month = factor(month, levels = c('September', 'October'), order = T),
+  mutate( month = factor(month, levels = c('August', 'September', 'October', 'November'), 
+                         order = T),
          Region = ifelse( is.na(Region), 'Unknown', Region) ) 
                 
 
@@ -499,17 +483,19 @@ x = data %>%
 
 y = x %>%  spread(month, n)
 t = data.frame(Region = 'Total', 
+               August = sum(y$August, na.rm=T),
                September = sum(y$September, na.rm=T) , 
-               October = sum(y$October, na.rm=T))
+               October = sum(y$October, na.rm=T),
+               November = sum(y$November, na.rm = T))
 y = rbind(y, t)
 
 y[is.na(y)] = 0
 
 # y = rbind(y, data.frame(Region = 'total', data %>% count()) )
-kable( comma(y), align = c('l', rep('r', ncol(y)-1)), caption = 'New EVD cases identified in Guinea, September-October, 2014.' )
+kable( comma(y), align = c('l', rep('r', ncol(y)-1)), caption = 'New EVD cases identified in Guinea, August-November, 2014.' )
 ```
 
-```{r epicurve, fig.cap='Weekly EVD Case Count in Conakry and Kindia, Guinee, September-October, 2014'}
+```{r epicurve, fig.cap='Weekly EVD Case Count in Conakry and Kindia, Guinee, August-November, 2014'}
 
 #kindia geography
 
@@ -526,7 +512,7 @@ cky = data %>% filter(Region %in% c('Conakry') )
 #     SCRes = factor( toupper(SCRes), levels = SClevels) )
   
 cky %>%
-  filter(dateOnset %within% SeptemberOctober ) %>% 
+  filter(dateOnset %within% AugustNovember ) %>% 
   arrange(dateOnset) %>%
   mutate( interval = week(dateOnset),
           period = as.Date(floor_date(dateOnset, "week")) ) %>%  # set time period
@@ -548,11 +534,9 @@ ggsave('caseEpiCurve.png', width = 6.5, height = 3.5, units = 'in')
 
 ```
 
-```{r epicurveContacts, fig.cap='Weekly EVD Case Count in Conakry and Kindia, Guinee, September-October, 2014'}
+```{r epicurveContacts, fig.cap='Weekly EVD Case Count in Conakry and Kindia, Guinee, August-November, 2014'}
 
 load('contacts.rda') # see cky_case_contacts.Rmd
-  
-SeptemberOctober = new_interval(ymd('2014-SEP-01'), ymd('2014-OCT-31') )
 
 load('regions.rda')
 Region = regions %>%  # table includes Region, DistrictRes, SCRes
@@ -562,7 +546,7 @@ Region = regions %>%  # table includes Region, DistrictRes, SCRes
 d = contacts %>% 
   merge(Region, all.x = TRUE, by.x= 'District', by.y ='DistrictRes' ) %>%
 #   filter(Region %in% c('Conakry', 'Kindia') ) %>%
-  filter(DateLastContact %within% SeptemberOctober ) %>% 
+  filter(DateLastContact %within% AugustNovember ) %>% 
   mutate( 
     interval = week(DateLastContact),
           period = as.Date(floor_date(DateLastContact, "week"))
@@ -687,7 +671,7 @@ d = data.cky %>%
 
 ```{r eppicurveKnownContacts}
 data.cky.kin = data %>% filter( Region %in% c('Conakry', 'Kindia') )%>% 
-  filter(dateOnset %within% SeptemberOctober ) 
+  filter(dateOnset %within% AugustNovember ) 
 
 
 g1 = 
@@ -880,134 +864,6 @@ g
 # png('epicurve_secondary_cases.png', height = 7, width = 9.5, units = 'in', res=200)
 # g
 # dev.off()
-```
-
-
-```{r sourcCases}
-load('keys.rda')
-
-d = data.cky %>% 
-  left_join( edges %>% select(case, source), by = c('ID'= 'case')) %>%
-  left_join(sourceCases[, c('source', 'sourceDistrict', 'sourceSCRes', 'sourceRegion')], 
-            by = 'source') %>%
-  mutate( knownContact = ifelse(is.na(sourceRegion), 'Followed', 'Not Followed*') , 
-          daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ),
-          sourceRegion = ifelse(is.na(sourceRegion), 'Source case unidentified', 
-                                ifelse(sourceRegion %in% 'Conakry', 'Conakry', 'Other')
-                                ) 
-          ) %>%
-  select( ID, knownContact, sourceRegion, daysToIso, Age, HCW, Gender) %>% 
-  group_by( knownContact, sourceRegion, ID) %>%
-  summarize(  n = 1) 
-, 
-              Age = sprintf("%s", 
-                            format(median(floor(ages/12), na.rm = TRUE), nsmall = 1) ),
-              Under5 = sprintf("%s%%", 
-                            format(round( 100*sum(ifelse(ages/12 <5, 1, 0), na.rm = TRUE)/n, 1) ) ),
-              Male = sprintf("%s%%", 
-                             round(100*sum(Gender-1, na.rm = TRUE)/n, 1) ) , #1-Masculine, 2-Feminine
-              HCW = sprintf( '%s%%', 
-                             round(sum(HCW, na.rm = TRUE)/n, 1) ) ,# 0-no, 1-Yes
-              Iso = sprintf("%s", 
-                            format(mean(daysToIso, na.rm = TRUE), nsmall = 1) )
-             )
-
-t = t(d) %>% as.data.frame()
-colnames(t) = c('Known Contact', 'Not Known Contact')
-rownames(t)[6] = 'Healthcare Worker'
-rownames(t)[3] = 'Age: Median (years)'
-rownames(t)[4] = 'Age: Under 5 years'
-rownames(t)[7] = 'Days to Isolation (median)'
-
-t = t[-c(1,7), ]  # take off row that is now the header (1) and days to isolation (7)
-
-kable( t, align = c('r', 'r'), 
-       digits = 1, 
-       caption = 'Characteristics of EVD cases who were known contacts' )
-
-# test of significance for under 5
-d = 
-  data %>%
-  left_join( key.[, 1:2], by = c('ID' = 'case')) %>%
-  mutate( knownContact = ifelse(is.na(contact), 'Not Followed*', 'Followed'), 
-          Under5 = ifelse(ages/12<5, 'under5', 'over5') 
-          )
-
-t = table(d$Under5, d$knownContact)
-f = fisher.test(t)
-
-```
-
-```{r secondarycasescky, fig.cap = 'Histogram of the number of secondary cases associated with source cases.', fig.height= 3}
-
-load('keys.rda')
-
-# There are a few multiple contact-case pairs do to duplicates. 
-# all duplicates have same source case.  The following removes the duplicates
-key. = keys %>% 
-  group_by(case) %>% filter(row_number(contact)==1) %>%
-  as.data.frame()
-
-# key. %>% filter(dateOnset %within% SeptemberOctober ) %>% count(contact)
-
-sourceCases = key. %>% 
-  filter(dateOnset %within% SeptemberOctober ) %>% 
-  select(SourceCaseID) %>%
-  count(SourceCaseID) %>%
-  left_join( data , by = c('SourceCaseID' = 'ID' )) %>%
-  rename(sourceSCRes = SCRes,
-         Secondary = n) %>%
-  arrange(-Secondary) %>%
-  unique() %>%
-  mutate( CaseID = LETTERS[1:12],
-          Outcome = ifelse(StatusReport ==1, 'Died', 'Alive'),
-          Hospitalized = ifelse( !is.na(DateHospitalCurrentAdmit), 'Y', 'N'),
-          Age = floor(ages/12))  %>%
-  select( SourceCaseID,
-          CaseID, DistrictRes, sourceSCRes, dateOnset, Gender, 
-          Age, HCW, Hospitalized, Outcome, Secondary) 
-
-# sourceCases[is.na(sourceCases)] = 0
-
-kable(sourceCases %>% select(-SourceCaseID), 
-      align = 'r', caption = 'Characteristics of source cases', row.names = FALSE)
-
-sourceCases[is.na(sourceCases$sourceSCRes), 'sourceSCRes'] = 'Missing'
-  
-john.ben.interval = new_interval(ymd("2014-Aug-1"), ymd("2014-OCT-30"))
-
-t = key. %>% 
-  filter(dateOnset %within% john.ben.interval ) %>%
-  count(SourceCaseID) %>%
-  arrange(-n) %>%
-  rename(Number_2ndary_Cases = n)
-
-# kable(t)
-
-g = t %>% filter(!is.na(t$SourceCaseID)) %>%
-ggplot(aes(x=Number_2ndary_Cases )) +
-  geom_bar() +
-  scale_y_continuous('Frequency') +
-  scale_x_continuous('Number of secondary cases', 
-                     breaks = seq(1, max(t$Number_2ndary_Cases), 2)
-                     ) 
-g
-
-# r=naught
-secondary = sum(t$Number_2ndary_Cases, na.rm=T)
-sources = sum(!is.na(t$SourceCaseID))
-
-noSpread = data.cky[data.cky$dateOnset <= max(sourceCases$dateOnset, na.rm = TRUE) ,] %>%
-  filter( !(ID %in% sourceCases$SourceCaseID)) %>%
-  nrow()
-
-r0max =  secondary  / sources
-r0min = secondary  / (sources + noSpread)
-
-# effect of reducing superspreader to only one secondary case
-r0prime = (secondary - 9) / sources
-
-
 ```
 
 
@@ -1221,35 +1077,36 @@ load('cases.guinea.rda')
 cases.guinea$case = 1
 
 d = cases.guinea %>% 
+  filter(dateOnset < as.Date(ymd('2014-DEC-01')) ) %>%
   mutate( DistrictRes = ifelse( DistrictRes %in% '', NA, DistrictRes)) %>%
   merge(Region, all = TRUE, by= 'DistrictRes') 
 
-d.sepoct = cases.guinea %>% 
-  filter(dateOnset %within% SeptemberOctober ) %>%
+d.augnov = cases.guinea %>% 
+  filter(dateOnset %within% AugustNovember ) %>%
   mutate( DistrictRes = ifelse( DistrictRes %in% '', NA, DistrictRes)) %>%
   merge(Region, all = TRUE, by= 'DistrictRes') 
   
 d.previous = cases.guinea %>% 
-  filter(dateOnset < as.Date(ymd('2014-SEP-01')) ) %>%
+  filter(dateOnset < as.Date(ymd('2014-AUG-01')) ) %>%
   merge(Region, all = TRUE, by= 'DistrictRes')
 
 p.total = d %>%
   group_by(DistrictRes) %>% 
   summarize(Total = sum( case, na.rm = TRUE)) 
 
-p.sepoct = d.sepoct %>%  # tabulate totals by location
+p.augnov = d.augnov %>%  # tabulate totals by location
   group_by(DistrictRes ) %>% 
-  summarize( SepOct = sum( case, na.rm = TRUE)) 
+  summarize( AugNov = sum( case, na.rm = TRUE)) 
 
 p.previous = d.previous %>%  # tabulate totals by location
   group_by(DistrictRes ) %>% 
   summarize( previous = sum( case, na.rm = TRUE)) 
 
-p.previous = rbind(p.previous, data.frame(DistrictRes = NA, previous=NA))
-p.previous[is.na(p.total[,1]), 1 ] <- 'Unknown'
+# p.previous = rbind(p.previous, data.frame(DistrictRes = NA, previous=NA))
+# p.previous[is.na(p.total[,1]), 1 ] <- 'Unknown'
 
 
-p = cbind(p.sepoct, p.previous[,2], p.total[,2]) # join TOTALS to t
+p = cbind(p.augnov, p.previous[,2], p.total[,2]) # join TOTALS to t
 
 p[is.na(p[,1]), 1 ] <- 'Unknown'
 
@@ -1262,7 +1119,7 @@ p[is.na(p)] <- 0  # convert NA to 0
 ```{r prefets_dot, fig.cap="Cas d'Ebola pendant le dernier 21 jours, Guinee", fig.height=8, fig.width=6.5}
 
 # classify values
-p$SepOct =  cut(p$SepOct, 
+p$AugNov =  cut(p$AugNov, 
                       breaks = c(1, 25, 50, 100, 200, 400, Inf), 
                       label = c('1-25','25-49','50-99','100-199','200-399', '400 +'),
 #                       breaks = c(0,1, 10, 20, 50, 100, Inf), 
@@ -1298,10 +1155,10 @@ g = ggplot( ) + theme_map +
                color="grey50", alpha=1) + 
   geom_text(data= GIN2.c, aes(label = Name, x=V1, y=V2), size=3, vjust = 1.5) +
   scale_fill_manual('Cases through August, 2014', values = colors, drop = FALSE) +
-  geom_point(data= map.data.p.c, aes(x=V1, y=V2, size = SepOct), 
+  geom_point(data= map.data.p.c, aes(x=V1, y=V2, size = AugNov), 
              color = "black") + 
-  scale_size_discrete("Cases During September-October, 2014") +
-  scale_alpha_discrete("Cases During September-October, 2014") +
+  scale_size_discrete("Cases During August-November, 2014") +
+  scale_alpha_discrete("Cases During August-November, 2014") +
   geom_polygon(data= liberia,
                aes(x=long, y=lat, group=group), 
                color="grey50", fill = NA) +
@@ -1313,6 +1170,6 @@ g = ggplot( ) + theme_map +
   labs(x=NULL, y=NULL)
 g
 
-# ggsave(plot = g, 'SepOct.png', width=6.5, height=6.5, units='in')
+# ggsave(plot = g, 'AugNov.png', width=6.5, height=6.5, units='in')
 ```
 
