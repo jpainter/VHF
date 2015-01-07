@@ -1,0 +1,73 @@
+---
+title: "Under 5 Case Definition Variables"
+author: "Epi Task Force"
+date: "Thursday, December 04, 2014"
+output: pdf_document
+---
+
+```{r data, echo=FALSE, message=FALSE, warning=FALSE}
+library(mi)
+library(knitr)
+library(scales)
+library(dplyr)
+opts_chunk$set( echo=FALSE, message=FALSE, comment="", warning=FALSE, results='asis')
+
+load('case_guinea_sl.rda')
+
+EpiCaseDef = data.frame(EpiCaseDef = c(0,1,2,3,4),
+                     EpiCaseDef.label = c('Non-Case','Confirmed',
+                                          'Probable','Suspect', 'Excluded'))
+
+cases = case_guinea_sl %>% 
+  select(AgeYears, Fever, Vomiting, Diarrhea, AbdPain, Unexplainedbleeding, Contact, EpiCaseDef) %>%
+  filter( AgeYears<5) %>% 
+  mutate( EpiCaseDef = as.integer(EpiCaseDef)) %>%
+  left_join(EpiCaseDef)  %>%
+  rename( Case = EpiCaseDef.label) %>%
+  select(-EpiCaseDef)
+
+
+under5 = nrow(cases)
+```
+
+Ebola case status and symptom records are available from VHF records of `r comma(under5)` children 0-4 years of age in Guinea and Sierra Leone. Hhowever, much of the data elements have missing values.  Available data for select variables is blue; missing data is red.
+
+
+```{r}
+
+par(mai=c(1,2,0,0.1))
+
+cases %>% 
+  missing.pattern.plot( clustered=FALSE,
+                      xlab= paste0("observations (n=", comma(nrow(cases)), ")" ),
+                      main = ''
+                      )
+
+```
+
+Among those with available data, this table shows the percentages of children with known Ebola contact and other symptoms.
+
+```{r }
+library(data.table)
+library(dplyr)
+
+cases %>% 
+  filter( Contact %in% c(1,2)) %>% 
+#   mutate( Contact = factor(Contact, labels = c('Y', 'N'))) %>%
+  as.data.table() %>%
+  group_by( Case) %>%
+  summarize( 
+    n = n(),
+    Contact = percent( sum(Contact == 1, na.rm = T)  / sum(Contact %in% c(1,2), na.rm = T) ) ,
+    Fever = percent( sum(Fever == 1, na.rm = T)  / sum(Fever %in% c(1,2), na.rm = T) ) , 
+    Vomiting = percent( sum(Vomiting == 1, na.rm = T)  / sum(Vomiting %in% c(1,2), na.rm = T) ) , 
+    Diarrhea = percent( sum(Diarrhea == 1, na.rm = T)  / sum(Diarrhea %in% c(1,2), na.rm = T) ) , 
+    AbdPain = percent( sum(AbdPain == 1, na.rm = T)  / sum(AbdPain %in% c(1,2), na.rm = T) ) , 
+    Unexplainedbleeding = percent( sum(Unexplainedbleeding == 1, na.rm = T)  / sum(Unexplainedbleeding %in% c(1,2), na.rm = T) ) 
+    ) %>%
+  kable()
+
+
+```
+
+*n: indicates number of records with contact listed as yes or no only.  
