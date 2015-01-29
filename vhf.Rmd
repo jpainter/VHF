@@ -1125,50 +1125,148 @@ paste( unique(O$HCWposition), collapse = ', ')
 
 # Days to Isolation
 
-As a potential metric to assess the effectiveness of contact tracing and access to care, the days to isolation was calculated as the number of days from illness onset to hospital admission. Because of data entry errors, some values do not make sense. For this chart, Values were restricted to 0-18 days.  
+The days to isolation was calculated as the number of days from illness onset to hospital admission. To assess changes, we plot the days to isolation by month, and by month and region.
+
+```{r isolation_histo, fig.cap = 'Histogram of days to isolation'}
+
+# Time from onset to isolation
+d = cases.guinea %>% 
+  select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, DistrictRes) %>%
+  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
+  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ) ) 
+
+d %>% ggplot(aes( daysToIso)) + geom_bar()
+```
+
++ Because of data entry errors, some values for days to hospitalization do not make sense. 
+
++ For this analysis, days to isolation were restricted to 0-20 days (results: removed ~7% of reports) 
 
 ```{r isolation, fig.cap='Days to Isolation by Month of Onset, Guinea'}
 
-# Time from onset to isolation
-data = cases.guinea %>% 
-  select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, DistrictRes) %>%
-  merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
-  filter(DateIsolationCurrent > DateOnset ) %>%
-  mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) ) ) %>%
-  filter(daysToIso < 18)
- 
-g = ggplot(data, aes( month(DateOnset), daysToIso)) +
+d_filter = d %>% filter(daysToIso >= 0 & daysToIso < 21 & 
+                          StatusAsOfCurrentDate %in% c('Décédé','Vivant')) 
+
+ggplot(d_filter, aes( month(DateOnset), daysToIso)) +
     scale_x_continuous('Month', breaks = c(1:12)) +
     scale_y_continuous('Days to Isolation', breaks = seq(0, 28, 2)) +
     geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
-    scale_colour_manual('Status', values = c('grey', "red", "green") ) +
+    scale_colour_manual('Status', values = c("red", "green") ) +
     geom_boxplot( aes(group = month(DateOnset)) , outlier.shape = NA, fill = NA) 
-g
+
+# d$daysToIso_range = cut(d$daysToIso, c(-Inf, 0, 21, Inf ))
+# t = table(d$daysToIso_range)
+# prop.table(t)
+
 ```
+
 
 ```{r isolation_region, fig.height=8, fig.cap='Days to Isolation by Month of Onset, Region, Guinea'}
-g + facet_grid( Region ~ .)
+
+d_filter = d %>% filter(daysToIso >= 0 & daysToIso < 21 & 
+                          StatusAsOfCurrentDate %in% c('Décédé','Vivant')) 
+
+ggplot(d_filter, aes( month(DateOnset), daysToIso)) +
+    scale_x_continuous('Month', breaks = c(1:12)) +
+    scale_y_continuous('Days to Isolation', breaks = seq(0, 28, 2)) +
+    geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
+    scale_colour_manual('Status', values = c("red", "green") ) +
+    geom_boxplot( aes(group = month(DateOnset)) , outlier.shape = NA, fill = NA) +
+    facet_grid( Region ~ .)
 ```
 
+
+# Survival as funcion of days to isolation
+
+To assess the impact of contact tracing and access to care on survival, we examined association of days to isolation with survival ('StatusAsOfCurrentDate')
+
++ Because the data on survival is typically provided at the outset of hospitalization, the final outcome may not be updated, particularly for the most recent records. Therefore many outcomes may be misclassified as survived even thought the patient died.  Older records are more likely to be correct. 
+
++ For this analysis, days to isolation were restricted to 0-20 days (results: removed ~7% of reports) and did not include last month of reports (because survival data likely not updated).  
+
+```{r isolation_survival, fig.cap='Days to Isolation by Month of Onset, Guinea'}
+
+# remove last month because data not updated
+d_filter2 = d_filter %>% filter(month(DateOnset) < 12)
+
+
+d_filter2 %>% filter(StatusAsOfCurrentDate %in% 'Décédé' ) %>% 
+  select(daysToIso_Died = daysToIso) %>% summary(daysToIso)
+
+d_filter2 %>% filter(StatusAsOfCurrentDate %in% 'Vivant' ) %>% 
+  select(daysToIso_Survived = daysToIso) %>% summary(daysToIso)
+
+
+# overall
+ggplot(d_filter2, aes( StatusAsOfCurrentDate, daysToIso)) +
+    scale_y_continuous('Days to Isolation', breaks = c(1:20)) +
+    scale_x_discrete('Status') +
+    geom_point(aes(colour = StatusAsOfCurrentDate), position = 'jitter' ) +
+    scale_colour_manual('Status', values = c("red", "green") )  +
+    geom_boxplot(  outlier.shape = NA, fill = NA)
+
+```
+
+
+```{r isolation_survival_rate, fig.cap='Days to Isolation by Month of Onset, Guinea'}
+
+# remove last month because data not updated
+d_filter2_rate = d_filter2 %>%
+  group_by(daysToIso) %>%
+  summarize( survival = sum(StatusAsOfCurrentDate == 'Vivant')/ n(),
+             n = n())
+
+# overall
+ggplot(d_filter2_rate, aes( daysToIso, survival)) +
+    geom_point(aes(size = n)) +
+    scale_x_continuous('Days to Isolation', breaks = c(1:20)) +
+    scale_y_continuous('Survival Rate', limits = c(0,1), labels = percent ) +
+    geom_smooth(aes(weight = n)) 
+
+```
+
+
+Regional difference are apparent, although these difference could be biased by difference in data reporting.  In particular, the greater than expected survival rate for patients in Conakry suggests that outcome may not be updated.
+
+```{r isolation_survival_rate_region, fig.cap='Days to Isolation by Month of Onset, Guinea'}
+
+# remove last month because data not updated
+d_filter3_rate = d_filter2 %>%
+  filter( Region %in% c('Conakry', 'Nzérékoré', 'Faranah')) %>%
+  group_by(daysToIso, Region) %>%
+  summarize( survival = sum(StatusAsOfCurrentDate == 'Vivant')/ n(),
+             n = n())
+
+# overall
+ggplot(d_filter3_rate, aes( daysToIso, survival)) +
+    geom_point(aes(size = n)) +
+    scale_x_continuous('Days to Isolation', breaks = c(1:20)) +
+    scale_y_continuous('Survival Rate', limits = c(0,1), labels = percent ) +
+    geom_smooth(aes(weight = n)) + facet_grid( Region ~ .)
+
+```
+
+
+# Number not isolated
 
 ```{r noIso, eval=FALSE}
 
 # Time from onset to isolation
 data = cases.guinea %>% 
-  select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, DistrictRes) %>%
+  select( DateOnset, DateIsolationCurrent, StatusAsOfCurrentDate, StatusReport, 
+          DistrictRes) %>%
   merge(Region, all.x = TRUE, by= 'DistrictRes') %>%
   filter(DateIsolationCurrent > DateOnset ) %>%
   mutate( daysToIso = as.numeric( as.Date(DateIsolationCurrent) - as.Date(DateOnset) )
-          ) %>%
-  filter( !is.na(daysToIso) )
- 
+          ) 
+
 g = ggplot(data, aes( month(DateOnset))) +
     scale_x_continuous('Month', breaks = c(1:12)) +
-    geom_bar(aes(fill = StatusAsOfCurrentDate), color = 'black', 
+    geom_bar(aes(fill = StatusReport), color = 'black', 
              stat='bin', binwidth = 1, position = 'stack' ) +
-    scale_fill_manual('Status', values = c('grey', "red", "green")) 
+    scale_fill_manual('Status', values = c('grey', "red", "green")) +
+    facet_grid( Region ~ .)
 g
 
-kable( data %>% filter(StatusReport == 'Dead') %>% count(Region), caption = 'Number of those reported as died who were not isolated prior to death.')
 ```
 
