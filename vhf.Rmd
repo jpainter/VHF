@@ -1176,7 +1176,7 @@ ggplot(d_filter, aes( month(DateOnset), daysToIso)) +
 ```
 
 
-# Survival as funcion of days to isolation
+# Survival as function of days to isolation
 
 To assess the impact of contact tracing and access to care on survival, we examined association of days to isolation with survival ('StatusAsOfCurrentDate')
 
@@ -1191,10 +1191,11 @@ d_filter2 = d_filter %>% filter(month(DateOnset) < 12)
 
 
 d_filter2 %>% filter(StatusAsOfCurrentDate %in% 'Décédé' ) %>% 
-  select(daysToIso_Died = daysToIso) %>% summary(daysToIso)
+  select(daysToIso_Died = daysToIso) %>% summary(daysToIso) %>% kable()
+
 
 d_filter2 %>% filter(StatusAsOfCurrentDate %in% 'Vivant' ) %>% 
-  select(daysToIso_Survived = daysToIso) %>% summary(daysToIso)
+  select(daysToIso_Survived = daysToIso) %>% summary(daysToIso) %>% kable()
 
 
 # overall
@@ -1207,8 +1208,9 @@ ggplot(d_filter2, aes( StatusAsOfCurrentDate, daysToIso)) +
 
 ```
 
+## Survival rate
 
-```{r isolation_survival_rate, fig.cap='Days to Isolation by Month of Onset, Guinea'}
+```{r isolation_survival_rate, fig.cap='Survival rate (loess) by days to isolation, Guinea'}
 
 # remove last month because data not updated
 d_filter2_rate = d_filter2 %>%
@@ -1228,7 +1230,7 @@ ggplot(d_filter2_rate, aes( daysToIso, survival)) +
 
 Regional difference are apparent, although these difference could be biased by difference in data reporting.  In particular, the greater than expected survival rate for patients in Conakry suggests that outcome may not be updated.
 
-```{r isolation_survival_rate_region, fig.cap='Days to Isolation by Month of Onset, Guinea'}
+```{r isolation_survival_rate_region, fig.cap='Survival rate (loess) by days to isolation, Guinea'}
 
 # remove last month because data not updated
 d_filter3_rate = d_filter2 %>%
