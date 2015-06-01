@@ -119,7 +119,7 @@ cases.guinea = case_data %>%
   select( GlobalRecordId, ID, ThisCaseIsAlsoContact,
           Surname, OtherNames,
           DateIsolationCurrent, DateHospitalCurrentAdmit,
-          StatusAsOfCurrentDate, EpiCaseDef , 
+          StatusAsOfCurrentDate, EpiCaseDef , FinalStatus,
           DateReport, Age, AgeUnit, Gender, DateDeath, 
           StatusReport, VillageRes, ParishRes, CountryRes,
           DistrictRes, SCRes, HCW, 
