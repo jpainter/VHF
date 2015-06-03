@@ -16,11 +16,13 @@ dir = 'May2015/'  # folder, relative to this project, with spreadsheets
 
 # "Base de donnees des contacts_RATOMA_ 24 MAI 2015.xls"
 # "Base_Contacts_parprefecture_version travail 19 mai_2015  (1).xls"
-# "BASE SUIVI CONTACTS DIXINN 25 05 2015_jp.xlxs" # removed first 128 rows (early 2014) because of bad date formats
+# "BASE SUIVI CONTACTS DIXINN 25 05 2015_jp.xlxs" 
+  # removed first 128 rows (early 2014) because of bad date formats
+  # fixed bad age du contact
+  # created new col, dateLastContact = text(S, "dd/mm/yyyy")
 # "Base contact Dubreka au 29 mai 2015 pour envoi niveau    national (1).xlsx"
 
-contact.file.name = "BASE SUIVI CONTACTS DIXINN 25 05 2015"
-# contact.file.name = "Base de donnees des contacts_RATOMA_ 24 MAI 2015"
+contact.file.name = "BASE SUIVI CONTACTS DIXINN 01 06 2015-1_jp"
 
 contact.sheet.name = "Liste_de_contacts"
 contact.sheet.type = "xlsx"
@@ -74,18 +76,18 @@ cases %>% count(DateOnset) %>% arrange(desc(DateOnset))
 
 # CONTACT DATA  ####
 
-file.xls = paste0(dir, contact.file.name, ".", contact.sheet.type)
+contact.file.xls = paste0(dir, contact.file.name, ".", contact.sheet.type)
 
-contacts = read_excel(file.xls, contact.sheet.name)
+contacts = read_excel(contact.file.xls, contact.sheet.name)
 str(contacts)
 
 # check data format
 if (!(is.POSIXct(contacts$`Date du dernier contact avec cas source`))) {
   contacts$`Date du dernier contact avec cas source` = 
-    mdy(contacts$`Date du dernier contact avec cas source`[2:220])
+    dmy(contacts$`Date du dernier contact avec cas source`)
 }
 
-contacts = contacts[,1:21] %>% 
+contacts = contacts[, 1:21] %>% 
   rename( ID =  `N ° du contact`,
           Surname = Nom,
           OtherNames = Prenom,
@@ -124,21 +126,17 @@ contacts %>% count(District)
 contacts %>% count(subCounty)
 contacts %>% count(Village)
 contacts %>% count(case_District)
-contacts %>% count(case_District)
-contacts %>% count(case_District)
+contacts %>% count(case_subCounty)
+contacts %>% count(case_Village)
 contacts %>% count(DateLastContact) %>% arrange(desc(DateLastContact))
 
 # NAME MATCH ####
 
 # clean memory 
-rm(list = ls()); gc()
-
-case.file.name = "cases_may20"
-contact.file.name = "Base de donnees des contacts_RATOMA_ 24 MAI 2015"
-dir = 'May2015/' 
-
-load(paste0(dir, case.file.name, ".rda"))
-load(paste0(dir, contact.file.name, ".rda"))
+# rm(list = ls()); gc()
+# 
+# load(paste0(dir, case.file.name, ".rda"))
+# load(paste0(dir, contact.file.name, ".rda"))
 
 # setup matrix of values to test
 # m = matrix( nrow = nrow(cases) , ncol = nrow(contacts), 
@@ -337,9 +335,13 @@ contact_age = contacts$`Age du contact`
   paste( "the frequency by strength of match is ")
          table(total)
   
+
 # manual review #####
   
-if ( readline("press y if you want to review matches") == "y" ){ 
+manualReview = function(contact.file.name = contact.file.name,
+                        case.file.name = case.file.name
+                        ){
+  if ( tolower(readline("Enter y if you want to review matches\n")) == "y" ){ 
   
   match_review = data.frame(
     contact_file = rep(contact.file.name, n) , case_file = rep(case.file.name, n),
@@ -379,7 +381,10 @@ if ( readline("press y if you want to review matches") == "y" ){
   }
   
   save(match_review, file=paste0( quote(match_review), ".rda"))
+  return(match_review)
   
-}
+  }}
+
+match_review = manualReview(contact.file.name, case.file.name)
   
 View(match_review)
